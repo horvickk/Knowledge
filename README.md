@@ -14,7 +14,7 @@ Android-приложение для развития общей эрудиции
 
 ## Установка
 
-Готовые APK публикуются в разделе **Releases** после каждого push (GitHub Actions). Без секретов подписи CI использует кэшированный debug-ключ, так что обновления ставятся поверх друг друга. Для постоянного собственного ключа добавьте в секреты репозитория `SIGNING_KEYSTORE_BASE64` (keystore в base64), `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`.
+Готовые APK публикуются в разделе **Releases** после каждого push (GitHub Actions); свежая сборка всегда доступна по ссылке `releases/latest`. Без секретов подписи CI использует кэшированный debug-ключ, так что обновления ставятся поверх друг друга. Для постоянного собственного ключа добавьте в секреты репозитория `SIGNING_KEYSTORE_BASE64` (keystore в base64), `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`.
 
 ## Сборка
 

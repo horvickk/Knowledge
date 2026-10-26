@@ -60,5 +60,5 @@ jobs:
           body: |
             Автоматическая сборка из ветки `${{ github.ref_name }}` (коммит ${{ github.sha }}).
             Скачайте APK ниже и установите на Android 8.0+. Обновления ставятся поверх предыдущей версии без потери прогресса.
-          prerelease: true
+          make_latest: true
           files: Erudit-${{ github.run_number }}.apk
