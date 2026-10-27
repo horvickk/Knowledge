@@ -9,7 +9,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
+import kotlinx.coroutines.flow.first
+import org.junit.Assert.assertTrue
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -84,6 +92,7 @@ class ScreenshotTest {
                             "capitals" -> TrainerScreen("capitals") {}
                             "logic" -> TrainerScreen("logic") {}
                             "exam" -> ExamIntroScreen(firstCourse.stages.first().examId, {}, {})
+                            "exam-session" -> SessionScreen("exam", firstCourse.stages.first().examId, {}, {})
                         }
                     }
                 }
@@ -112,6 +121,32 @@ class ScreenshotTest {
         shot("13-session-wrong")
         compose.onNodeWithText("Я ответил правильно").performClick()
         shot("14-session-accepted")
+
+        // Экзамен: без подсказок, разбор в конце, засчитанные ответы пересчитывают результат.
+        screen = "exam-session"
+        shot("24-exam-question")
+        repeat(15) {
+            compose.onNode(hasSetTextAction()).performTextInput("не помню")
+            compose.onNodeWithText("Ответить").performClick()
+        }
+        shot("25-exam-failed")
+        val list = compose.onNode(hasScrollAction())
+        repeat(12) {
+            list.performScrollToNode(hasText("Я ответил правильно"))
+            compose.onAllNodesWithText("Я ответил правильно").onFirst().performClick()
+        }
+        list.performScrollToIndex(0)
+        // Пересчёт в базе идёт в фоне: ждём, пока придёт пометка о первой сдаче.
+        repeat(100) {
+            if (compose.onAllNodesWithText("Экзамен сдан впервые", substring = true).fetchSemanticsNodes().isNotEmpty()) return@repeat
+            Thread.sleep(40)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+        }
+        shot("26-exam-revised")
+        compose.onNodeWithText("Экзамен сдан").assertExists()
+        compose.onNodeWithText("Экзамен сдан впервые", substring = true).assertExists()
+        val attempt = runBlocking { container.database.dao().examAttempts().first().first() }
+        assertTrue("попытка пересчитана: $attempt", attempt.passed && attempt.correct == 12)
 
         screen = "flags"
         shot("15-flags-intro")

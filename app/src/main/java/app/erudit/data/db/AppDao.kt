@@ -72,7 +72,16 @@ interface AppDao {
 
     // Экзамены
     @Insert
-    suspend fun insertExamAttempt(a: ExamAttempt)
+    suspend fun insertExamAttempt(a: ExamAttempt): Long
+
+    @Query("SELECT * FROM exam_attempt WHERE id = :id")
+    suspend fun examAttempt(id: Long): ExamAttempt?
+
+    @Query("UPDATE exam_attempt SET correct = :correct, passed = :passed WHERE id = :id")
+    suspend fun updateExamAttempt(id: Long, correct: Int, passed: Boolean)
+
+    @Query("SELECT COUNT(*) FROM exam_attempt WHERE examId = :examId AND passed = 1 AND id != :except")
+    suspend fun passCountExcept(examId: String, except: Long): Int
 
     @Query("SELECT * FROM exam_attempt ORDER BY timestamp DESC")
     fun examAttempts(): Flow<List<ExamAttempt>>

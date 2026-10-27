@@ -82,7 +82,7 @@ fun ExamIntroScreen(examId: String, onBack: () -> Unit, onStart: () -> Unit) {
                 }
                 Spacer(Modifier.height(20.dp))
                 Text(
-                    "Подсказок во время экзамена нет — разбор ошибок будет в конце. Ответы влияют на интервальные повторения.",
+                    "Ответы вводятся с клавиатуры, подсказок нет — разбор ошибок будет в конце. Если ответили верно, но своими словами, засчитайте ответ в разборе: результат пересчитается.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = AppTheme.extra.muted,
                 )

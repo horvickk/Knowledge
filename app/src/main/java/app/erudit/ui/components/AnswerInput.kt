@@ -163,18 +163,7 @@ fun AnswerFeedback(
         }
         if (!correct && onOverride != null) {
             Spacer(Modifier.height(12.dp))
-            Surface(
-                onClick = onOverride,
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, extra.line),
-            ) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Check, contentDescription = null, tint = extra.success, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Я ответил правильно", style = MaterialTheme.typography.labelLarge)
-                }
-            }
+            AcceptButton(onOverride)
             Spacer(Modifier.height(4.dp))
         }
         explanation?.let {
@@ -184,6 +173,24 @@ fun AnswerFeedback(
                 style = MaterialTheme.typography.bodyLarge.copy(fontFamily = Serif),
                 color = MaterialTheme.colorScheme.onBackground,
             )
+        }
+    }
+}
+
+/** Кнопка «Я ответил правильно»: пользователь засчитывает свой ответ, данный другими словами. */
+@Composable
+fun AcceptButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, AppTheme.extra.line),
+        modifier = modifier,
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Check, contentDescription = null, tint = AppTheme.extra.success, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Я ответил правильно", style = MaterialTheme.typography.labelLarge)
         }
     }
 }

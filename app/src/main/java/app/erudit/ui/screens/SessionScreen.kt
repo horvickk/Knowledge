@@ -57,8 +57,10 @@ import app.erudit.AppContainer
 import app.erudit.data.content.Exam
 import app.erudit.data.content.Question
 import app.erudit.domain.AnswerMatcher
+import app.erudit.domain.ExamOutcome
 import app.erudit.domain.SessionBuilder
 import app.erudit.domain.Xp
+import app.erudit.ui.components.AcceptButton
 import app.erudit.ui.components.AnswerFeedback
 import app.erudit.ui.components.AnswerField
 import app.erudit.ui.components.OptionHints
@@ -81,6 +83,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 enum class SessionKind(val key: String) {
@@ -98,8 +102,11 @@ data class SessionItem(
     val showOptions: Boolean = AnswerMatcher.needsOptions(question),
 )
 
-/** Ответ, введённый с клавиатуры: [typed] пустой — вопрос остался без ответа. */
-data class SessionAnswer(val item: SessionItem, val typed: String, val correct: Boolean)
+/**
+ * Ответ, введённый с клавиатуры: [typed] пустой — вопрос остался без ответа.
+ * [accepted] — пользователь сам засчитал ответ как верный.
+ */
+data class SessionAnswer(val item: SessionItem, val typed: String, val correct: Boolean, val accepted: Boolean = false)
 
 data class SessionResult(
     val correct: Int,
@@ -107,6 +114,7 @@ data class SessionResult(
     val xp: Int,
     val exam: Exam? = null,
     val passed: Boolean? = null,
+    /** Неверные ответы; засчитанные пользователем в разборе остаются в списке с отметкой. */
     val mistakes: List<SessionAnswer> = emptyList(),
     val note: String? = null,
 ) {
@@ -151,14 +159,22 @@ class SessionViewModel(
     /** Сколько ответов уже записано в статистику: ответ записывается, когда пользователь идёт дальше. */
     private var recorded = 0
 
+    /** Попытка экзамена в базе — её пересчитывают, когда пользователь засчитывает ответы. */
+    private var attemptId = 0L
+    private var examAnswersSaved = false
+    private val revising = Mutex()
+
     init {
         start()
     }
 
     fun start() {
         timer?.cancel()
+        saveExamAnswers()
         requeued.clear()
         recorded = 0
+        attemptId = 0
+        examAnswersSaved = false
         _state.value = SessionState(kind = kind)
         viewModelScope.launch {
             val content = container.awaitContent()
@@ -253,6 +269,13 @@ class SessionViewModel(
         if (s.verdict != null || s.result != null || s.finishing || s.input.isBlank()) return
         val typed = s.input.trim()
         val correct = AnswerMatcher.check(typed, item.question, item.order)
+        if (kind == SessionKind.EXAM) {
+            // На экзамене без подсказок: ответ принят — сразу следующий вопрос, разбор в конце.
+            _state.update { it.copy(answers = it.answers + SessionAnswer(item, typed, correct)) }
+            if (s.index + 1 >= s.items.size) finish()
+            else _state.update { it.copy(index = it.index + 1, input = "") }
+            return
+        }
         var items = s.items
         if (kind == SessionKind.REVIEW && !correct && requeued.add(item.question.id)) {
             items = items + SessionItem(item.question, SessionBuilder.optionOrder(item.question))
@@ -321,12 +344,14 @@ class SessionViewModel(
             val result = when (kind) {
                 SessionKind.EXAM -> {
                     val e = exam!!
-                    answers.forEach { study.recordAnswer(it.item.question, it.correct, isReview = false) }
+                    // В интервальные повторения ответы попадут после разбора (saveExamAnswers),
+                    // чтобы засчитанные пользователем ответы не записались как ошибки.
                     val total = s.items.size
                     val answeredIds = answers.map { it.item.question.id }.toSet()
                     val unanswered = s.items.filter { it.question.id !in answeredIds }.map { SessionAnswer(it, "", false) }
                     val duration = ((System.currentTimeMillis() - startedAt) / 1000).toInt()
                     val outcome = study.recordExam(e, correct, total, duration)
+                    attemptId = outcome.attemptId
                     SessionResult(
                         correct = correct,
                         total = total,
@@ -334,11 +359,7 @@ class SessionViewModel(
                         exam = e,
                         passed = outcome.passed,
                         mistakes = answers.filter { !it.correct } + unanswered,
-                        note = when {
-                            outcome.firstPass -> "Экзамен сдан впервые: +${outcome.xp} опыта"
-                            outcome.passed -> "Экзамен пересдан"
-                            else -> "Нужно не меньше ${e.passPercent}% — повторите материал и попробуйте снова"
-                        },
+                        note = examNote(e, outcome),
                     )
                 }
                 SessionKind.LESSON -> {
@@ -372,6 +393,65 @@ class SessionViewModel(
     fun abandon() {
         timer?.cancel()
         recordPending()
+    }
+
+    /**
+     * В разборе экзамена пользователь засчитал ответ на вопрос [questionId] как верный:
+     * пересчитываем процент, сдачу и бонус, обновляем попытку в базе.
+     */
+    fun acceptExamAnswer(questionId: String) {
+        val e = exam ?: return
+        val s = _state.value
+        val result = s.result ?: return
+        val i = s.answers.indexOfFirst { it.item.question.id == questionId && !it.correct && it.typed.isNotBlank() }
+        if (i < 0 || examAnswersSaved) return
+        val answers = s.answers.toMutableList().also { it[i] = it[i].copy(correct = true, accepted = true) }
+        val correct = answers.count { it.correct }
+        _state.update {
+            it.copy(
+                answers = answers,
+                result = result.copy(
+                    correct = correct,
+                    // Сдачу видно сразу, бонус и пометка придут из базы.
+                    passed = result.passed == true || correct * 100 >= e.passPercent * result.total,
+                    mistakes = result.mistakes.map { m ->
+                        if (m.item.question.id == questionId) m.copy(correct = true, accepted = true) else m
+                    },
+                ),
+            )
+        }
+        viewModelScope.launch {
+            revising.withLock {
+                val latest = _state.value.answers.count { it.correct }
+                val outcome = study.reviseExam(attemptId, e, latest)
+                _state.update { st ->
+                    // Пока шёл пересчёт, пользователь мог засчитать ещё ответ — тогда ждём следующего.
+                    if (st.answers.count { it.correct } != latest) st
+                    else st.copy(result = st.result?.copy(xp = outcome.xp, passed = outcome.passed, note = examNote(e, outcome)))
+                }
+            }
+        }
+    }
+
+    /** Ответы экзамена с учётом засчитанных — в интервальные повторения, один раз. */
+    private fun saveExamAnswers() {
+        if (kind != SessionKind.EXAM || examAnswersSaved || _state.value.result == null) return
+        examAnswersSaved = true
+        val answers = _state.value.answers
+        container.scope.launch {
+            answers.forEach { study.recordAnswer(it.item.question, it.correct, isReview = false) }
+        }
+    }
+
+    override fun onCleared() {
+        saveExamAnswers()
+        super.onCleared()
+    }
+
+    private fun examNote(e: Exam, outcome: ExamOutcome): String = when {
+        outcome.firstPass -> "Экзамен сдан впервые: +${outcome.xp} опыта"
+        outcome.passed -> "Экзамен пересдан"
+        else -> "Нужно не меньше ${e.passPercent}% — повторите материал и попробуйте снова"
     }
 
     companion object {
@@ -411,7 +491,13 @@ fun SessionScreen(kindKey: String, arg: String, onClose: () -> Unit, onOpenLesso
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         when {
             state.loading -> Loading()
-            state.result != null -> ResultView(state, onClose = onClose, onRetry = vm::start, onOpenLesson = onOpenLesson)
+            state.result != null -> ResultView(
+                state,
+                onClose = onClose,
+                onRetry = vm::start,
+                onOpenLesson = onOpenLesson,
+                onAccept = vm::acceptExamAnswer,
+            )
             state.finishing -> Loading()
             state.items.isEmpty() -> EmptySession(state.title, state.emptyMessage ?: "Вопросов нет.", onClose)
             else -> QuestionView(
@@ -560,7 +646,13 @@ private fun EmptySession(title: String, message: String, onClose: () -> Unit) {
 }
 
 @Composable
-private fun ResultView(state: SessionState, onClose: () -> Unit, onRetry: () -> Unit, onOpenLesson: (String) -> Unit) {
+private fun ResultView(
+    state: SessionState,
+    onClose: () -> Unit,
+    onRetry: () -> Unit,
+    onOpenLesson: (String) -> Unit,
+    onAccept: (questionId: String) -> Unit,
+) {
     val result = state.result ?: return
     val extra = AppTheme.extra
     val content = LocalContainer.current.content.collectAsState().value
@@ -620,12 +712,23 @@ private fun ResultView(state: SessionState, onClose: () -> Unit, onRetry: () -> 
             }
         }
         if (result.mistakes.isNotEmpty()) {
+            val exam = state.kind == SessionKind.EXAM
+            val left = result.mistakes.count { !it.correct }
             item {
-                Text(
-                    "Разбор ошибок · ${plural(result.mistakes.size, "вопрос", "вопроса", "вопросов")}",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(top = 40.dp, bottom = 12.dp),
-                )
+                Column(Modifier.padding(top = 40.dp, bottom = 12.dp)) {
+                    Text(
+                        if (left > 0) "Разбор ошибок · ${plural(left, "вопрос", "вопроса", "вопросов")}" else "Разбор ошибок",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    if (exam && result.mistakes.any { it.typed.isNotBlank() }) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Если вы ответили верно, но другими словами, нажмите «Я ответил правильно» — результат экзамена пересчитается.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = extra.muted,
+                        )
+                    }
+                }
             }
             items(result.mistakes) { m ->
                 val q = m.item.question
@@ -634,9 +737,18 @@ private fun ResultView(state: SessionState, onClose: () -> Unit, onRetry: () -> 
                     Spacer(Modifier.height(8.dp))
                     if (m.typed.isNotBlank()) {
                         Row(verticalAlignment = Alignment.Top) {
-                            Icon(Icons.Outlined.Close, null, tint = extra.error, modifier = Modifier.size(18.dp).padding(top = 2.dp))
+                            Icon(
+                                if (m.accepted) Icons.Outlined.Check else Icons.Outlined.Close,
+                                null,
+                                tint = if (m.accepted) extra.success else extra.error,
+                                modifier = Modifier.size(18.dp).padding(top = 2.dp),
+                            )
                             Spacer(Modifier.width(8.dp))
-                            Text(m.typed, style = MaterialTheme.typography.bodyMedium, color = extra.muted)
+                            Text(
+                                if (m.accepted) "${m.typed} — засчитано" else m.typed,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = extra.muted,
+                            )
                         }
                     } else {
                         Text("Нет ответа", style = MaterialTheme.typography.bodyMedium, color = extra.muted)
@@ -646,6 +758,10 @@ private fun ResultView(state: SessionState, onClose: () -> Unit, onRetry: () -> 
                         Icon(Icons.Outlined.Check, null, tint = extra.success, modifier = Modifier.size(18.dp).padding(top = 2.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(Markdown.inline(q.options[q.correct]), style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (exam && !m.correct && m.typed.isNotBlank()) {
+                        Spacer(Modifier.height(10.dp))
+                        AcceptButton(onClick = { onAccept(q.id) })
                     }
                     q.explanation?.let {
                         Spacer(Modifier.height(8.dp))

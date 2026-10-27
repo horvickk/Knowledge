@@ -24,7 +24,7 @@ import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 import java.time.LocalTime
 
-data class ExamOutcome(val passed: Boolean, val percent: Int, val xp: Int, val firstPass: Boolean)
+data class ExamOutcome(val passed: Boolean, val percent: Int, val xp: Int, val firstPass: Boolean, val attemptId: Long = 0)
 
 data class DayProgress(val xpToday: Int, val goal: Int, val streak: Int) {
     val goalReached: Boolean get() = xpToday >= goal
@@ -126,18 +126,41 @@ class StudyRepository(
             val percent = if (total == 0) 0 else correct * 100 / total
             val passed = percent >= exam.passPercent
             val firstPass = passed && dao.passCount(exam.id) == 0
-            dao.insertExamAttempt(ExamAttempt(0, exam.id, correct, total, passed, System.currentTimeMillis(), durationSec))
-            val bonus = if (!firstPass) 0 else when (exam.kind) {
-                Exam.Kind.STAGE -> Xp.STAGE_EXAM
-                Exam.Kind.COURSE -> Xp.COURSE_EXAM
-                Exam.Kind.DOMAIN -> Xp.DOMAIN_EXAM
-            }
+            val id = dao.insertExamAttempt(ExamAttempt(0, exam.id, correct, total, passed, System.currentTimeMillis(), durationSec))
+            val bonus = if (firstPass) passBonus(exam) else 0
             if (bonus > 0) addActivityLocked(xp = bonus)
             if (passed && correct == total) bumpCounter(Counters.PERFECT_EXAMS, 1)
-            ExamOutcome(passed, percent, bonus + correct * Xp.CORRECT_ANSWER, firstPass)
+            ExamOutcome(passed, percent, bonus + correct * Xp.CORRECT_ANSWER, firstPass, id)
         }
         checkAchievements()
         return outcome
+    }
+
+    /**
+     * Пересчёт попытки, когда пользователь засчитал свои ответы в разборе ошибок: верных стало
+     * [correct]. Если экзамен от этого впервые сдан, начисляется бонус; верных может только
+     * прибавиться, поэтому сданный экзамен не становится несданным.
+     */
+    suspend fun reviseExam(attemptId: Long, exam: Exam, correct: Int): ExamOutcome {
+        val outcome = mutex.withLock {
+            val old = dao.examAttempt(attemptId) ?: return@withLock null
+            val total = old.total
+            val percent = if (total == 0) 0 else correct * 100 / total
+            val passed = old.passed || percent >= exam.passPercent
+            dao.updateExamAttempt(attemptId, correct, passed)
+            val firstPass = passed && dao.passCountExcept(exam.id, attemptId) == 0
+            if (firstPass && !old.passed) addActivityLocked(xp = passBonus(exam))
+            if (passed && correct == total && !(old.passed && old.correct == total)) bumpCounter(Counters.PERFECT_EXAMS, 1)
+            ExamOutcome(passed, percent, (if (firstPass) passBonus(exam) else 0) + correct * Xp.CORRECT_ANSWER, firstPass, attemptId)
+        }
+        checkAchievements()
+        return outcome ?: ExamOutcome(false, 0, 0, false, attemptId)
+    }
+
+    private fun passBonus(exam: Exam): Int = when (exam.kind) {
+        Exam.Kind.STAGE -> Xp.STAGE_EXAM
+        Exam.Kind.COURSE -> Xp.COURSE_EXAM
+        Exam.Kind.DOMAIN -> Xp.DOMAIN_EXAM
     }
 
     /**
