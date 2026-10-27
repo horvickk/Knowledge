@@ -9,12 +9,19 @@ android {
     namespace = "app.erudit"
     compileSdk = 35
 
+    // Номер сборки CI: по нему приложение сравнивает себя с релизами на GitHub и предлагает
+    // обновиться. Локальные сборки — номер 0, они обновления не проверяют.
+    val buildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+    val updateRepo = System.getenv("GITHUB_REPOSITORY").orEmpty()
+
     defaultConfig {
         applicationId = "app.erudit"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = buildNumber.coerceAtLeast(1)
+        versionName = if (buildNumber > 0) "1.$buildNumber" else "1.0"
+        buildConfigField("int", "BUILD_NUMBER", "$buildNumber")
+        buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
     }
 
     // Ключ релизной подписи берётся из переменных окружения: в CI это секреты репозитория
