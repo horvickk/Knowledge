@@ -7,6 +7,11 @@ on:
 permissions:
   contents: write
 
+# Сборки идут по очереди: две одновременные первые сборки создали бы два разных ключа.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,32 +25,68 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # Один и тот же debug-ключ между сборками, если секреты подписи не заданы.
+      # Если секреты подписи не заданы, CI подписывает своим постоянным ключом: он создаётся
+      # при первой сборке и хранится в кэше Actions (кэш, в отличие от артефактов и релизов,
+      # извне не скачать). Без этого каждая сборка получала бы новый debug-ключ и не ставилась
+      # бы поверх предыдущей.
       - uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: debug-keystore-v1
+          path: ~/.erudit-signing
+          key: erudit-ci-keystore-v1
 
-      - name: Ключ подписи из секретов
+      - name: Ключ подписи
         env:
           KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
-        if: env.KEYSTORE_BASE64 != ''
+          STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          echo "SIGNING_STORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "SIGNING_STORE_FILE=$RUNNER_TEMP/release.keystore"
+              echo "SIGNING_STORE_PASSWORD=$STORE_PASSWORD"
+              echo "SIGNING_KEY_ALIAS=$KEY_ALIAS"
+              echo "SIGNING_KEY_PASSWORD=$KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Подпись ключом из секретов репозитория"
+            exit 0
+          fi
+          dir="$HOME/.erudit-signing"
+          if [ ! -f "$dir/ci.keystore" ]; then
+            mkdir -p "$dir"
+            head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' > "$dir/password"
+            pass=$(cat "$dir/password")
+            keytool -genkeypair -keystore "$dir/ci.keystore" -storetype PKCS12 -alias erudit \
+              -keyalg RSA -keysize 2048 -validity 10000 -storepass "$pass" -keypass "$pass" \
+              -dname "CN=Erudit CI"
+            echo "Создан новый ключ CI"
+          else
+            echo "Ключ CI восстановлен из кэша"
+          fi
+          pass=$(cat "$dir/password")
+          echo "::add-mask::$pass"
+          {
+            echo "SIGNING_STORE_FILE=$dir/ci.keystore"
+            echo "SIGNING_STORE_PASSWORD=$pass"
+            echo "SIGNING_KEY_ALIAS=erudit"
+            echo "SIGNING_KEY_PASSWORD=$pass"
+          } >> "$GITHUB_ENV"
 
       - name: Проверка контента и логики
         run: ./gradlew :app:testDebugUnitTest --tests 'app.erudit.ContentValidationTest' --tests 'app.erudit.LogicTest' --tests 'app.erudit.AnswerMatcherTest' --tests 'app.erudit.CountriesTest'
 
       - name: Сборка release APK
-        env:
-          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: ./gradlew :app:assembleRelease
 
-      - name: Переименование
-        run: cp app/build/outputs/apk/release/app-release.apk Erudit-${{ github.run_number }}.apk
+      - name: Переименование и отпечаток ключа
+        id: apk
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk Erudit-${{ github.run_number }}.apk
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          cert=$("$apksigner" verify --print-certs Erudit-${{ github.run_number }}.apk | grep -m1 'SHA-256' | awk '{print $NF}')
+          echo "Ключ подписи: $cert"
+          echo "cert=$cert" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -59,6 +100,9 @@ jobs:
           name: Эрудит, сборка ${{ github.run_number }}
           body: |
             Автоматическая сборка из ветки `${{ github.ref_name }}` (коммит ${{ github.sha }}).
-            Скачайте APK ниже и установите на Android 8.0+. Обновления ставятся поверх предыдущей версии без потери прогресса.
+            Скачайте APK ниже и установите на Android 8.0+.
+
+            Отпечаток ключа подписи (SHA-256): `${{ steps.apk.outputs.cert }}`
+            Сборки с одинаковым отпечатком ставятся поверх друг друга без потери прогресса.
           make_latest: true
           files: Erudit-${{ github.run_number }}.apk

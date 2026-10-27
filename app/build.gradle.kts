@@ -17,8 +17,8 @@ android {
         versionName = "1.0"
     }
 
-    // Ключ релизной подписи берётся из переменных окружения (секреты CI). Без них релиз
-    // подписывается debug-ключом — в CI он кэшируется, чтобы обновления ставились поверх.
+    // Ключ релизной подписи берётся из переменных окружения: в CI это секреты репозитория
+    // или постоянный ключ CI из кэша (см. build.yml). Без них — локальный debug-ключ.
     val releaseStore = System.getenv("SIGNING_STORE_FILE")?.takeIf { it.isNotBlank() }
     signingConfigs {
         if (releaseStore != null) {
