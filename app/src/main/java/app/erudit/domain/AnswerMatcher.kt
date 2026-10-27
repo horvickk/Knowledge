@@ -19,13 +19,16 @@ object AnswerMatcher {
     val letters = listOf("А", "Б", "В", "Г", "Д", "Е")
 
     private val optionPhrases = Regex(
-        "из перечисленн|какой вариант|какой из вариантов|как правильно (сказать|поставить|написать)",
+        "из перечисленн|какой вариант|какой из вариантов|как правильно (сказать|поставить|написать)|^как(ое|ая|ой|ие|ую|им|ого|ому|их) из ",
         RegexOption.IGNORE_CASE,
     )
 
-    /** Вопрос ссылается на варианты («что из перечисленного…») или они различаются только регистром. */
+    /**
+     * Вопрос без вариантов не имеет смысла: помечен в контенте как выбор («?? »), ссылается на варианты
+     * («что из перечисленного…», «какое из…») или варианты различаются только регистром.
+     */
     fun needsOptions(q: Question): Boolean =
-        optionPhrases.containsMatchIn(q.text) || q.options.map { compact(it) }.toSet().size < q.options.size
+        q.choice || optionPhrases.containsMatchIn(q.text) || q.options.map { compact(it) }.toSet().size < q.options.size
 
     /**
      * Верен ли ответ [input] на вопрос [q]. [order] — порядок показа вариантов: нужен, если они

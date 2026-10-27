@@ -51,6 +51,8 @@ data class Question(
     val options: List<String>,
     val correct: Int,
     val explanation: String?,
+    /** Вопрос-выбор («?? » в контенте): без вариантов он не имеет смысла, и они всегда показываются. */
+    val choice: Boolean = false,
 ) {
     /** Вопросы «верно/неверно» не перемешиваются, чтобы порядок ответов был привычным. */
     val keepOrder: Boolean

@@ -117,6 +117,12 @@ class AnswerMatcherTest {
         val plain = q("Козу", "Волка", text = "Кого перевезти первым?")
         assertFalse(AnswerMatcher.needsOptions(plain))
         no("а", plain)
+        // «Какое из…» и вопросы, помеченные в контенте как выбор, без вариантов не имеют смысла.
+        assertTrue(AnswerMatcher.needsOptions(q("3/8", "1/3", text = "Какая из дробей записывается конечной десятичной дробью?")))
+        val divisible = Question("t", "l", "Какое число делится на 9?", listOf("7 362", "7 361", "4 444"), 0, null, choice = true)
+        assertTrue(AnswerMatcher.needsOptions(divisible))
+        assertTrue(AnswerMatcher.check("а", divisible, listOf(0, 1, 2)))
+        ok("7362", divisible)
     }
 
     @Test

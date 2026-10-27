@@ -94,7 +94,7 @@ object ContentParser {
             meta[k] = v
             i++
         }
-        val quizStart = (i until lines.size).firstOrNull { lines[it].startsWith("? ") } ?: lines.size
+        val quizStart = (i until lines.size).firstOrNull { isQuestion(lines[it]) } ?: lines.size
         val body = lines.subList(i, quizStart).joinToString("\n").trim()
         val questions = parseQuestions(lessonId, lines.subList(quizStart, lines.size))
         return Lesson(
@@ -115,6 +115,7 @@ object ContentParser {
         val options = mutableListOf<String>()
         var correct = -1
         var explanation: String? = null
+        var choice = false
 
         fun flush() {
             val q = text ?: return
@@ -127,20 +128,24 @@ object ContentParser {
                 options = options.toList(),
                 correct = correct,
                 explanation = explanation,
+                choice = choice,
             )
             text = null
             options.clear()
             correct = -1
             explanation = null
+            choice = false
         }
 
         for (raw in lines) {
             val line = raw.trimEnd()
             when {
                 line.isBlank() || line.startsWith("//") -> Unit
-                line.startsWith("? ") -> {
+                isQuestion(line) -> {
                     flush()
-                    text = line.substring(2).trim()
+                    // «?? » — вопрос-выбор; id считается по тексту, поэтому пометка его не меняет.
+                    choice = line.startsWith(CHOICE_PREFIX)
+                    text = line.removePrefix(CHOICE_PREFIX).removePrefix(QUESTION_PREFIX).trim()
                 }
                 line.startsWith("+ ") -> {
                     if (text == null) throw ParseException("$ownerId: ответ без вопроса '$line'")
@@ -162,6 +167,11 @@ object ContentParser {
         flush()
         return result
     }
+
+    private const val QUESTION_PREFIX = "? "
+    private const val CHOICE_PREFIX = "?? "
+
+    private fun isQuestion(line: String) = line.startsWith(QUESTION_PREFIX) || line.startsWith(CHOICE_PREFIX)
 
     private fun parseHeader(lines: List<String>): Map<String, String> =
         lines.filter { it.isNotBlank() && !it.startsWith("//") }
