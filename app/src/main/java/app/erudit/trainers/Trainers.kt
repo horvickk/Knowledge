@@ -3,7 +3,9 @@ package app.erudit.trainers
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.GridOn
+import androidx.compose.material.icons.outlined.LocationCity
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Pin
@@ -19,6 +21,8 @@ data class Trainer(
     val scoreUnit: String,
     /** Для таблицы Шульте рекорд — минимальное время. */
     val lowerIsBetter: Boolean = false,
+    /** Пользователь сам выбирает число вопросов, и рекорд для каждого числа свой (флаги, столицы). */
+    val perCount: Boolean = false,
 ) {
     fun formatScore(score: Int): String = if (lowerIsBetter) "%.1f с".format(score / 10f) else "$score $scoreUnit"
 }
@@ -60,7 +64,36 @@ object Trainers {
             "Назовите цвет, которым написано слово, а не само слово. 45 секунд на тренировку управляющего контроля внимания.",
             Icons.Outlined.Palette, "очков",
         ),
+        Trainer(
+            "flags", "Флаги мира", "География",
+            "Узнайте страну по флагу и введите её название. Выберите, сколько стран взять: берутся самые известные, так что с 20 начинать легко, а все 194 — вызов для знатоков.",
+            Icons.Outlined.Flag, "стран", perCount = true,
+        ),
+        Trainer(
+            "capitals", "Столицы мира", "География",
+            "Назовите столицу страны. Выберите, сколько стран взять: сначала идут самые известные. Для каждого числа стран — свой рекорд.",
+            Icons.Outlined.LocationCity, "стран", perCount = true,
+        ),
     )
 
     val byId = all.associateBy { it.id }
+}
+
+/** Счёт тренажёров с выбором числа стран: больше верных лучше, при равенстве — быстрее. */
+object GeoScore {
+    private const val TIME_SLOTS = 100_000
+
+    fun encode(correct: Int, seconds: Int): Int = correct * TIME_SLOTS + (TIME_SLOTS - 1 - seconds.coerceIn(0, TIME_SLOTS - 1))
+    fun correct(score: Int): Int = score / TIME_SLOTS
+    fun seconds(score: Int): Int = TIME_SLOTS - 1 - score % TIME_SLOTS
+
+    /** Ключ, под которым хранятся результаты для заданного числа стран. */
+    fun key(trainer: String, count: Int): String = "$trainer:$count"
+
+    /** Ключ последнего выбранного числа стран. */
+    fun lastCountKey(trainer: String): String = "${trainer}_count"
+
+    fun format(score: Int, count: Int): String = "${correct(score)} из $count · ${time(seconds(score))}"
+
+    fun time(seconds: Int): String = "%d:%02d".format(seconds / 60, seconds % 60)
 }

@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,10 +17,12 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,10 +36,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,8 +56,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.erudit.AppContainer
 import app.erudit.data.content.Exam
 import app.erudit.data.content.Question
+import app.erudit.domain.AnswerMatcher
 import app.erudit.domain.SessionBuilder
 import app.erudit.domain.Xp
+import app.erudit.ui.components.AnswerFeedback
+import app.erudit.ui.components.AnswerField
+import app.erudit.ui.components.OptionHints
 import app.erudit.ui.components.PrimaryButton
 import app.erudit.ui.components.ProgressRing
 import app.erudit.ui.components.ScreenPadding
@@ -68,6 +73,7 @@ import app.erudit.ui.markdown.Markdown
 import app.erudit.ui.nav.LocalContainer
 import app.erudit.ui.theme.AppTheme
 import app.erudit.ui.theme.Serif
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,19 +81,25 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class SessionKind(val key: String) {
     LESSON("lesson"), PRACTICE("practice"), REVIEW("review"), MISTAKES("mistakes"), BLITZ("blitz"), EXAM("exam");
-
-    val instantFeedback: Boolean get() = this != EXAM
 
     companion object {
         fun of(key: String) = entries.first { it.key == key }
     }
 }
 
-data class SessionItem(val question: Question, val order: List<Int>)
-data class SessionAnswer(val item: SessionItem, val chosen: Int, val correct: Boolean)
+/** Вопрос сессии. Варианты показываются подсказкой, только если без них вопрос не имеет смысла. */
+data class SessionItem(
+    val question: Question,
+    val order: List<Int>,
+    val showOptions: Boolean = AnswerMatcher.needsOptions(question),
+)
+
+/** Ответ, введённый с клавиатуры: [typed] пустой — вопрос остался без ответа. */
+data class SessionAnswer(val item: SessionItem, val typed: String, val correct: Boolean)
 
 data class SessionResult(
     val correct: Int,
@@ -107,7 +119,11 @@ data class SessionState(
     val title: String = "",
     val items: List<SessionItem> = emptyList(),
     val index: Int = 0,
-    val chosen: Int? = null,
+    val input: String = "",
+    /** null — ответ ещё не проверен. */
+    val verdict: Boolean? = null,
+    /** Ответ не совпал, но пользователь засчитал его сам. */
+    val overridden: Boolean = false,
     val answers: List<SessionAnswer> = emptyList(),
     val timeLeft: Int? = null,
     val timeLimit: Int? = null,
@@ -132,6 +148,9 @@ class SessionViewModel(
     private var exam: Exam? = null
     private val requeued = HashSet<String>()
 
+    /** Сколько ответов уже записано в статистику: ответ записывается, когда пользователь идёт дальше. */
+    private var recorded = 0
+
     init {
         start()
     }
@@ -139,6 +158,7 @@ class SessionViewModel(
     fun start() {
         timer?.cancel()
         requeued.clear()
+        recorded = 0
         _state.value = SessionState(kind = kind)
         viewModelScope.launch {
             val content = container.awaitContent()
@@ -176,10 +196,14 @@ class SessionViewModel(
                 }
                 SessionKind.BLITZ -> {
                     title = "Блиц"
+                    // Ответ печатается, поэтому в блиц идут вопросы с короткими ответами.
+                    val short = { q: Question -> !AnswerMatcher.needsOptions(q) && AnswerMatcher.tokens(q.options[q.correct]).size <= 3 }
                     val done = study.completedLessons.first()
-                    val learned = content.lessons.filter { it.id in done }.flatMap { it.questions }
-                    timeLimit = 60
-                    (if (learned.size >= 20) learned else content.lessons.flatMap { it.questions }).shuffled().take(80)
+                    timeLimit = BLITZ_SECONDS
+                    withContext(Dispatchers.Default) {
+                        val learned = content.lessons.filter { it.id in done }.flatMap { it.questions }.filter(short)
+                        (if (learned.size >= 20) learned else content.lessons.flatMap { it.questions }.filter(short)).shuffled().take(80)
+                    }
                 }
                 SessionKind.EXAM -> {
                     val e = content.exam(arg) ?: error("Нет экзамена $arg")
@@ -219,47 +243,77 @@ class SessionViewModel(
         }
     }
 
-    fun choose(option: Int) {
+    fun onInput(text: String) {
+        if (_state.value.verdict == null) _state.update { it.copy(input = text) }
+    }
+
+    fun submit() {
         val s = _state.value
         val item = s.current ?: return
-        if (s.chosen != null || s.result != null || s.finishing) return
-        val correct = option == item.question.correct
-        val answer = SessionAnswer(item, option, correct)
-        if (kind == SessionKind.EXAM) {
-            _state.update { it.copy(chosen = option, answers = it.answers + answer) }
-            viewModelScope.launch {
-                delay(220)
-                next()
-            }
-            return
-        }
+        if (s.verdict != null || s.result != null || s.finishing || s.input.isBlank()) return
+        val typed = s.input.trim()
+        val correct = AnswerMatcher.check(typed, item.question, item.order)
         var items = s.items
         if (kind == SessionKind.REVIEW && !correct && requeued.add(item.question.id)) {
             items = items + SessionItem(item.question, SessionBuilder.optionOrder(item.question))
         }
-        _state.update { it.copy(chosen = option, answers = it.answers + answer, items = items) }
-        viewModelScope.launch {
-            study.recordAnswer(item.question, correct, isReview = kind == SessionKind.REVIEW)
-        }
-        if (kind == SessionKind.BLITZ) {
+        _state.update { it.copy(input = typed, verdict = correct, answers = it.answers + SessionAnswer(item, typed, correct), items = items) }
+        if (kind == SessionKind.BLITZ && correct) {
             viewModelScope.launch {
-                delay(if (correct) 350 else 900)
-                next()
+                delay(450)
+                val now = _state.value
+                if (now.index == s.index && now.verdict == true) next()
             }
+        }
+    }
+
+    /** Ответ не совпал с эталоном, но пользователь уверен, что ответил верно, — засчитываем. */
+    fun acceptAnyway() {
+        val s = _state.value
+        if (s.verdict != false || s.result != null || s.finishing) return
+        val last = s.answers.lastOrNull() ?: return
+        val id = last.item.question.id
+        var items = s.items
+        if (kind == SessionKind.REVIEW && id in requeued) {
+            val again = items.indexOfLast { it.question.id == id }
+            if (again > s.index) {
+                items = items.filterIndexed { i, _ -> i != again }
+                requeued.remove(id)
+            }
+        }
+        _state.update {
+            it.copy(verdict = true, overridden = true, items = items, answers = it.answers.dropLast(1) + last.copy(correct = true))
         }
     }
 
     fun next() {
         val s = _state.value
-        if (s.result != null || s.finishing) return
+        if (s.result != null || s.finishing || s.verdict == null) return
+        recordPending()
         if (s.index + 1 >= s.items.size) finish()
-        else _state.update { it.copy(index = it.index + 1, chosen = null) }
+        else _state.update { it.copy(index = it.index + 1, input = "", verdict = null, overridden = false) }
+    }
+
+    /**
+     * Записывает в статистику ответы, после которых пользователь пошёл дальше: до этого ответ
+     * ещё можно засчитать вручную. Пишем в фоне приложения, чтобы запись пережила закрытие экрана.
+     */
+    private fun recordPending() {
+        if (kind == SessionKind.EXAM) return
+        val answers = _state.value.answers
+        val pending = answers.drop(recorded)
+        recorded = answers.size
+        if (pending.isEmpty()) return
+        container.scope.launch {
+            pending.forEach { study.recordAnswer(it.item.question, it.correct, isReview = kind == SessionKind.REVIEW) }
+        }
     }
 
     private fun finish() {
         val s = _state.value
         if (s.result != null || s.finishing) return
         timer?.cancel()
+        recordPending()
         _state.update { it.copy(finishing = true) }
         viewModelScope.launch {
             val answers = s.answers
@@ -270,7 +324,7 @@ class SessionViewModel(
                     answers.forEach { study.recordAnswer(it.item.question, it.correct, isReview = false) }
                     val total = s.items.size
                     val answeredIds = answers.map { it.item.question.id }.toSet()
-                    val unanswered = s.items.filter { it.question.id !in answeredIds }.map { SessionAnswer(it, -1, false) }
+                    val unanswered = s.items.filter { it.question.id !in answeredIds }.map { SessionAnswer(it, "", false) }
                     val duration = ((System.currentTimeMillis() - startedAt) / 1000).toInt()
                     val outcome = study.recordExam(e, correct, total, duration)
                     SessionResult(
@@ -317,6 +371,11 @@ class SessionViewModel(
 
     fun abandon() {
         timer?.cancel()
+        recordPending()
+    }
+
+    companion object {
+        const val BLITZ_SECONDS = 90
     }
 }
 
@@ -355,7 +414,14 @@ fun SessionScreen(kindKey: String, arg: String, onClose: () -> Unit, onOpenLesso
             state.result != null -> ResultView(state, onClose = onClose, onRetry = vm::start, onOpenLesson = onOpenLesson)
             state.finishing -> Loading()
             state.items.isEmpty() -> EmptySession(state.title, state.emptyMessage ?: "Вопросов нет.", onClose)
-            else -> QuestionView(state, onClose = { if (inProgress) confirmExit = true else onClose() }, onChoose = vm::choose, onNext = vm::next)
+            else -> QuestionView(
+                state,
+                onClose = { if (inProgress) confirmExit = true else onClose() },
+                onInput = vm::onInput,
+                onSubmit = vm::submit,
+                onNext = vm::next,
+                onAccept = vm::acceptAnyway,
+            )
         }
     }
 }
@@ -400,9 +466,16 @@ private fun SessionHeader(state: SessionState, onClose: () -> Unit) {
 }
 
 @Composable
-private fun QuestionView(state: SessionState, onClose: () -> Unit, onChoose: (Int) -> Unit, onNext: () -> Unit) {
+private fun QuestionView(
+    state: SessionState,
+    onClose: () -> Unit,
+    onInput: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onNext: () -> Unit,
+    onAccept: () -> Unit,
+) {
     val item = state.current ?: return
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))) {
         SessionHeader(state, onClose)
         AnimatedContent(
             targetState = state.index,
@@ -411,11 +484,14 @@ private fun QuestionView(state: SessionState, onClose: () -> Unit, onChoose: (In
             modifier = Modifier.weight(1f),
         ) { index ->
             val current = state.items.getOrNull(index) ?: item
-            val chosen = if (index == state.index) state.chosen else null
+            val active = index == state.index
+            val verdict = if (active) state.verdict else null
+            val scroll = rememberScrollState()
+            LaunchedEffect(verdict) { if (verdict != null) scroll.animateScrollTo(scroll.maxValue) }
             Column(
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scroll)
                     .padding(horizontal = ScreenPadding, vertical = 24.dp),
             ) {
                 if (state.kind == SessionKind.BLITZ) {
@@ -430,83 +506,37 @@ private fun QuestionView(state: SessionState, onClose: () -> Unit, onChoose: (In
                     Markdown.inline(current.question.text),
                     style = MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp, lineHeight = 30.sp),
                 )
-                Spacer(Modifier.height(28.dp))
-                val reveal = chosen != null && state.kind.instantFeedback
-                current.order.forEach { optionIndex ->
-                    OptionTile(
-                        text = current.question.options[optionIndex],
-                        state = when {
-                            !reveal && chosen == optionIndex -> OptionState.SELECTED
-                            !reveal -> OptionState.IDLE
-                            optionIndex == current.question.correct -> OptionState.CORRECT
-                            optionIndex == chosen -> OptionState.WRONG
-                            else -> OptionState.DIMMED
-                        },
-                        enabled = chosen == null,
-                        onClick = { onChoose(optionIndex) },
+                Spacer(Modifier.height(24.dp))
+                if (current.showOptions) {
+                    OptionHints(current.question.options, current.order)
+                    Spacer(Modifier.height(16.dp))
+                }
+                AnswerField(
+                    value = if (active) state.input else "",
+                    onValueChange = onInput,
+                    verdict = verdict,
+                    onSubmit = onSubmit,
+                    onNext = onNext,
+                    autoFocus = active,
+                )
+                AnimatedVisibility(verdict != null, enter = fadeIn(), exit = fadeOut()) {
+                    val q = current.question
+                    AnswerFeedback(
+                        correct = verdict == true,
+                        overridden = state.overridden,
+                        rightAnswer = q.options[q.correct],
+                        explanation = if (state.kind == SessionKind.BLITZ) null else q.explanation,
+                        onOverride = onAccept,
+                        modifier = Modifier.padding(top = 16.dp),
                     )
-                    Spacer(Modifier.height(10.dp))
-                }
-                AnimatedVisibility(reveal && state.kind != SessionKind.BLITZ, enter = fadeIn(), exit = fadeOut()) {
-                    val correct = chosen == current.question.correct
-                    Column(Modifier.padding(top = 10.dp)) {
-                        Text(
-                            if (correct) "Верно" else "Неверно",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = if (correct) AppTheme.extra.success else AppTheme.extra.error,
-                        )
-                        current.question.explanation?.let {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                Markdown.inline(it),
-                                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = Serif),
-                                color = MaterialTheme.colorScheme.onBackground,
-                            )
-                        }
-                    }
                 }
             }
         }
-        if (state.chosen != null && state.kind.instantFeedback && state.kind != SessionKind.BLITZ) {
-            Box(
-                Modifier
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(horizontal = ScreenPadding, vertical = 16.dp),
-            ) {
+        Box(Modifier.padding(horizontal = ScreenPadding, vertical = 12.dp)) {
+            if (state.verdict == null) {
+                PrimaryButton("Ответить", onClick = onSubmit, enabled = state.input.isNotBlank())
+            } else {
                 PrimaryButton(if (state.index + 1 >= state.items.size) "Завершить" else "Далее", onClick = onNext)
-            }
-        } else {
-            Spacer(Modifier.windowInsetsPadding(WindowInsets.navigationBars).height(86.dp))
-        }
-    }
-}
-
-enum class OptionState { IDLE, SELECTED, CORRECT, WRONG, DIMMED }
-
-@Composable
-fun OptionTile(text: String, state: OptionState, enabled: Boolean, onClick: () -> Unit) {
-    val extra = AppTheme.extra
-    val (border, bg, fg) = when (state) {
-        OptionState.IDLE -> Triple(extra.line, MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.onSurface)
-        OptionState.SELECTED -> Triple(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurface)
-        OptionState.CORRECT -> Triple(extra.success, extra.successSoft, MaterialTheme.colorScheme.onSurface)
-        OptionState.WRONG -> Triple(extra.error, extra.errorSoft, MaterialTheme.colorScheme.onSurface)
-        OptionState.DIMMED -> Triple(extra.line, MaterialTheme.colorScheme.surface, extra.faint)
-    }
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        shape = MaterialTheme.shapes.medium,
-        color = bg,
-        border = BorderStroke(if (state == OptionState.IDLE || state == OptionState.DIMMED) 1.dp else 1.5.dp, border),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(Modifier.padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(Markdown.inline(text), style = MaterialTheme.typography.bodyLarge, color = fg, modifier = Modifier.weight(1f))
-            when (state) {
-                OptionState.CORRECT -> Icon(Icons.Outlined.Check, null, tint = extra.success, modifier = Modifier.size(20.dp))
-                OptionState.WRONG -> Icon(Icons.Outlined.Close, null, tint = extra.error, modifier = Modifier.size(20.dp))
-                else -> Unit
             }
         }
     }
@@ -602,11 +632,11 @@ private fun ResultView(state: SessionState, onClose: () -> Unit, onRetry: () -> 
                 Column(Modifier.padding(vertical = 12.dp)) {
                     Text(Markdown.inline(q.text), style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
-                    if (m.chosen >= 0) {
+                    if (m.typed.isNotBlank()) {
                         Row(verticalAlignment = Alignment.Top) {
                             Icon(Icons.Outlined.Close, null, tint = extra.error, modifier = Modifier.size(18.dp).padding(top = 2.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text(Markdown.inline(q.options[m.chosen]), style = MaterialTheme.typography.bodyMedium, color = extra.muted)
+                            Text(m.typed, style = MaterialTheme.typography.bodyMedium, color = extra.muted)
                         }
                     } else {
                         Text("Нет ответа", style = MaterialTheme.typography.bodyMedium, color = extra.muted)

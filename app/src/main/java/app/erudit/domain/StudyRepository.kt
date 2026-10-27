@@ -167,6 +167,9 @@ class StudyRepository(
         checkAchievements()
     }
 
+    /** Запоминает значение без сравнения с прежним — например, последний выбор пользователя. */
+    suspend fun rememberValue(key: String, value: Long) = mutex.withLock { dao.setCounter(Counter(key, value)) }
+
     suspend fun recordBlitz(correct: Int) {
         mutex.withLock {
             val old = dao.counter(Counters.BLITZ_BEST) ?: 0

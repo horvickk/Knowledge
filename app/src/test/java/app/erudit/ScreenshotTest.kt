@@ -9,7 +9,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import android.graphics.Canvas
 import android.os.Looper
 import org.robolectric.Shadows
@@ -76,6 +80,9 @@ class ScreenshotTest {
                             "practice" -> PracticeScreen({}, {}, {}, {}, {})
                             "profile" -> ProfileScreen({}, {}, {}, {}, {})
                             "trainer" -> TrainerScreen("math") {}
+                            "flags" -> TrainerScreen("flags") {}
+                            "capitals" -> TrainerScreen("capitals") {}
+                            "logic" -> TrainerScreen("logic") {}
                             "exam" -> ExamIntroScreen(firstCourse.stages.first().examId, {}, {})
                         }
                     }
@@ -97,9 +104,33 @@ class ScreenshotTest {
                 screen = s
                 shot("%02d-%s".format(i + 2, s))
             }
+        // Ввод ответа: неверный ответ и кнопка «Я ответил правильно».
+        screen = "session"
+        shot("12-session-empty")
+        compose.onNode(hasSetTextAction()).performTextInput("что-то не то")
+        compose.onNodeWithText("Ответить").performClick()
+        shot("13-session-wrong")
+        compose.onNodeWithText("Я ответил правильно").performClick()
+        shot("14-session-accepted")
+
+        screen = "flags"
+        shot("15-flags-intro")
+        compose.onNodeWithText("Начать").performClick()
+        shot("16-flags-play")
+        compose.onNode(hasSetTextAction()).performTextInput("Австрия")
+        compose.onNodeWithText("Ответить").performClick()
+        shot("17-flags-answered")
+        screen = "capitals"
+        shot("18-capitals-intro")
+        compose.onNodeWithText("Начать").performClick()
+        shot("19-capitals-play")
+
         theme = ThemeMode.DARK
         screen = "home"
         shot("20-home-dark")
+        screen = "flags"
+        compose.onNodeWithText("Начать").performClick()
+        shot("23-flags-dark")
         screen = "lesson"
         shot("21-lesson-dark")
         screen = "course"

@@ -39,6 +39,7 @@ import app.erudit.ui.components.SecondaryButton
 import app.erudit.ui.components.StatTile
 import app.erudit.ui.components.TopBar
 import app.erudit.ui.nav.LocalContainer
+import app.erudit.ui.screens.trainers.GeoTrainerScreen
 import app.erudit.ui.screens.trainers.LogicGame
 import app.erudit.ui.screens.trainers.MathGame
 import app.erudit.ui.screens.trainers.NBackGame
@@ -62,6 +63,7 @@ private enum class Phase { INTRO, PLAY, RESULT }
 @Composable
 fun TrainerScreen(trainerId: String, onBack: () -> Unit) {
     val trainer = Trainers.byId[trainerId] ?: return
+    if (trainer.perCount) return GeoTrainerScreen(trainer, onBack)
     val study = LocalContainer.current.study
     val scope = rememberCoroutineScope()
     var phase by remember { mutableStateOf(Phase.INTRO) }

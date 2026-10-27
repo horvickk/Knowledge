@@ -35,7 +35,7 @@ jobs:
           echo "SIGNING_STORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
 
       - name: Проверка контента и логики
-        run: ./gradlew :app:testDebugUnitTest --tests 'app.erudit.ContentValidationTest' --tests 'app.erudit.LogicTest'
+        run: ./gradlew :app:testDebugUnitTest --tests 'app.erudit.ContentValidationTest' --tests 'app.erudit.LogicTest' --tests 'app.erudit.AnswerMatcherTest' --tests 'app.erudit.CountriesTest'
 
       - name: Сборка release APK
         env:

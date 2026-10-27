@@ -103,7 +103,7 @@ fun PracticeScreen(
             )
             NavRow(
                 title = "Блиц",
-                subtitle = "60 секунд, как можно больше верных · рекорд ${counters[Counters.BLITZ_BEST] ?: 0}",
+                subtitle = "90 секунд, короткие ответы · рекорд ${counters[Counters.BLITZ_BEST] ?: 0}",
                 onClick = onBlitz,
                 leading = { IconBadge(Icons.Outlined.Bolt, AppTheme.extra.warm) },
             )
@@ -123,7 +123,11 @@ fun PracticeScreen(
                             Spacer(Modifier.height(16.dp))
                             Text(t.title, style = MaterialTheme.typography.titleSmall)
                             Text(
-                                best?.let { "Рекорд: " + t.formatScore(if (t.lowerIsBetter) it.worst else it.best) } ?: "Не пройден",
+                                when {
+                                    t.perCount -> "Свой рекорд для каждого числа стран"
+                                    best != null -> "Рекорд: " + t.formatScore(if (t.lowerIsBetter) best.worst else best.best)
+                                    else -> "Не пройден"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = AppTheme.extra.muted,
                             )

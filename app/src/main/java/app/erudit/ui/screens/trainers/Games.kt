@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -42,17 +44,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.erudit.domain.AnswerMatcher
 import app.erudit.domain.Counters
 import app.erudit.trainers.MentalMath
 import app.erudit.trainers.NBack
 import app.erudit.trainers.Series
+import app.erudit.ui.components.AnswerFeedback
+import app.erudit.ui.components.AnswerField
+import app.erudit.ui.components.OptionHints
 import app.erudit.ui.components.PrimaryButton
 import app.erudit.ui.components.ScreenPadding
 import app.erudit.ui.components.ThinProgress
 import app.erudit.ui.markdown.Markdown
 import app.erudit.ui.nav.rememberContent
-import app.erudit.ui.screens.OptionState
-import app.erudit.ui.screens.OptionTile
 import app.erudit.ui.screens.TrainerOutcome
 import app.erudit.ui.theme.AppTheme
 import app.erudit.ui.theme.Serif
@@ -322,21 +326,54 @@ fun LogicGame(onFinish: (TrainerOutcome) -> Unit) {
     val questions = remember { content.logicPuzzles.shuffled().take(10) }
     if (questions.isEmpty()) return
     var index by remember { mutableIntStateOf(0) }
-    var chosen by remember { mutableStateOf<Int?>(null) }
+    var input by remember { mutableStateOf("") }
+    var verdict by remember { mutableStateOf<Boolean?>(null) }
+    var overridden by remember { mutableStateOf(false) }
     var correct by remember { mutableIntStateOf(0) }
     val q = questions[index]
     val order = remember(index) { if (q.keepOrder) q.options.indices.toList() else q.options.indices.shuffled() }
+    val showOptions = remember(index) { AnswerMatcher.needsOptions(q) }
+    val scroll = rememberScrollState()
     val extra = AppTheme.extra
+    LaunchedEffect(verdict) { if (verdict != null) scroll.animateScrollTo(scroll.maxValue) }
+
+    val submit = {
+        if (verdict == null && input.isNotBlank()) {
+            input = input.trim()
+            val ok = AnswerMatcher.check(input, q, order)
+            if (ok) correct++
+            verdict = ok
+        }
+    }
+    val next = {
+        if (verdict != null) {
+            if (index + 1 >= questions.size) {
+                onFinish(
+                    TrainerOutcome(
+                        score = correct,
+                        xp = correct * 3,
+                        summary = "Решено $correct из ${questions.size} задач",
+                        records = if (correct == questions.size) mapOf(Counters.LOGIC_PERFECT to 1L) else emptyMap(),
+                    ),
+                )
+            } else {
+                index++
+                input = ""
+                verdict = null
+                overridden = false
+            }
+        }
+    }
 
     Column(
         Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.navigationBars),
+            .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
     ) {
         Column(
             Modifier
                 .weight(1f)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scroll)
                 .padding(horizontal = ScreenPadding),
         ) {
             ThinProgress(index.toFloat() / questions.size, height = 3.dp)
@@ -345,48 +382,40 @@ fun LogicGame(onFinish: (TrainerOutcome) -> Unit) {
             Spacer(Modifier.height(20.dp))
             Text(Markdown.inline(q.text), style = MaterialTheme.typography.titleLarge.copy(lineHeight = 28.sp))
             Spacer(Modifier.height(24.dp))
-            order.forEach { i ->
-                OptionTile(
-                    text = q.options[i],
-                    state = when {
-                        chosen == null -> OptionState.IDLE
-                        i == q.correct -> OptionState.CORRECT
-                        i == chosen -> OptionState.WRONG
-                        else -> OptionState.DIMMED
-                    },
-                    enabled = chosen == null,
-                    onClick = {
-                        chosen = i
-                        if (i == q.correct) correct++
-                    },
-                )
-                Spacer(Modifier.height(10.dp))
+            if (showOptions) {
+                OptionHints(q.options, order)
+                Spacer(Modifier.height(16.dp))
             }
-            if (chosen != null) {
-                q.explanation?.let {
-                    Spacer(Modifier.height(6.dp))
-                    Text(Markdown.inline(it), style = MaterialTheme.typography.bodyLarge.copy(fontFamily = Serif))
-                }
+            androidx.compose.runtime.key(index) {
+                AnswerField(
+                    value = input,
+                    onValueChange = { input = it },
+                    verdict = verdict,
+                    onSubmit = submit,
+                    onNext = next,
+                )
+            }
+            if (verdict != null) {
+                AnswerFeedback(
+                    correct = verdict == true,
+                    overridden = overridden,
+                    rightAnswer = q.options[q.correct],
+                    explanation = q.explanation,
+                    onOverride = {
+                        verdict = true
+                        overridden = true
+                        correct++
+                    },
+                    modifier = Modifier.padding(top = 16.dp),
+                )
             }
             Spacer(Modifier.height(16.dp))
         }
-        if (chosen != null) {
-            Box(Modifier.padding(horizontal = ScreenPadding, vertical = 16.dp)) {
-                PrimaryButton(if (index + 1 >= questions.size) "Завершить" else "Далее", onClick = {
-                    if (index + 1 >= questions.size) {
-                        onFinish(
-                            TrainerOutcome(
-                                score = correct,
-                                xp = correct * 3,
-                                summary = "Решено $correct из ${questions.size} задач",
-                                records = if (correct == questions.size) mapOf(Counters.LOGIC_PERFECT to 1L) else emptyMap(),
-                            ),
-                        )
-                    } else {
-                        index++
-                        chosen = null
-                    }
-                })
+        Box(Modifier.padding(horizontal = ScreenPadding, vertical = 12.dp)) {
+            if (verdict == null) {
+                PrimaryButton("Ответить", onClick = submit, enabled = input.isNotBlank())
+            } else {
+                PrimaryButton(if (index + 1 >= questions.size) "Завершить" else "Далее", onClick = next)
             }
         }
     }
