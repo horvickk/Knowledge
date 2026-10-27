@@ -27,6 +27,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import app.erudit.BuildConfig
 import app.erudit.data.prefs.ThemeMode
 import app.erudit.notify.Reminders
+import app.erudit.update.CheckState
+import app.erudit.update.DownloadState
 import app.erudit.ui.components.Divider
 import app.erudit.ui.components.ListScreen
 import app.erudit.ui.components.SectionLabel
@@ -187,6 +190,47 @@ fun SettingsScreen(onBack: () -> Unit) {
                             "%02d:%02d".format(settings.reminderHour, settings.reminderMinute),
                             style = MaterialTheme.typography.titleMedium,
                         )
+                    }
+                }
+            }
+        }
+        item {
+            val updates = container.updates
+            val check by updates.check.collectAsState()
+            val info by updates.info.collectAsState()
+            val download by updates.download.collectAsState()
+            SectionLabel("Обновления")
+            Text(
+                if (updates.current > 0) "Установлена сборка ${updates.current}" else "Локальная сборка: обновления не проверяются",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            if (updates.enabled) {
+                SwitchRow(
+                    "Проверять при запуске",
+                    "Если вышла новая сборка, появится окно со списком изменений и кнопкой установки",
+                    settings.checkUpdates,
+                ) { scope.launch { repo.setCheckUpdates(it) } }
+                val latest = info?.latest
+                Surface(
+                    onClick = { if (latest != null) updates.showDialog() else updates.checkNow() },
+                    color = androidx.compose.ui.graphics.Color.Transparent,
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+                        Text(
+                            if (latest != null) "Установить сборку ${latest.build}" else "Проверить обновления",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        val status = when {
+                            download is DownloadState.Downloading ->
+                                "Загрузка… ${((download as DownloadState.Downloading).progress * 100).toInt()}%"
+                            latest != null -> "Посмотреть, что нового"
+                            check == CheckState.CHECKING -> "Проверяем…"
+                            check == CheckState.UP_TO_DATE -> "У вас последняя версия"
+                            check == CheckState.FAILED -> "Не удалось проверить обновления"
+                            else -> null
+                        }
+                        status?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = AppTheme.extra.muted) }
                     }
                 }
             }

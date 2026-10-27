@@ -1,7 +1,18 @@
 package app.erudit
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import app.erudit.ui.components.UpdateCard
+import app.erudit.update.ChangeNote
+import app.erudit.update.DownloadState
+import app.erudit.update.Release
+import app.erudit.update.UpdateInfo
+import java.time.LocalDate
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -73,6 +84,26 @@ class ScreenshotTest {
 
         var screen by mutableStateOf("onboarding")
         var theme by mutableStateOf(ThemeMode.LIGHT)
+        var updateDownload by mutableStateOf<DownloadState>(DownloadState.None)
+        val update = UpdateInfo(
+            current = 56,
+            releases = listOf(
+                Release(
+                    58, LocalDate.of(2026, 10, 28),
+                    listOf(
+                        ChangeNote("Обновления внутри приложения", listOf("При запуске приложение сообщает о новой сборке и показывает, что в ней нового.", "APK скачивается и устанавливается прямо из окна обновления.")),
+                    ),
+                    "", 7_457_377,
+                ),
+                Release(
+                    57, LocalDate.of(2026, 10, 27),
+                    listOf(
+                        ChangeNote("Опыт только за новое, проверка урока по всем вопросам", listOf("Тренажёр приносит опыт раз в день по лучшему результату дня.", "Проверка после урока включает все вопросы урока.")),
+                    ),
+                    "", 7_400_000,
+                ),
+            ),
+        )
 
         compose.setContent {
             CompositionLocalProvider(LocalContainer provides container) {
@@ -94,6 +125,9 @@ class ScreenshotTest {
                             "logic" -> TrainerScreen("logic") {}
                             "exam" -> ExamIntroScreen(firstCourse.stages.first().examId, {}, {})
                             "exam-session" -> SessionScreen("exam", firstCourse.stages.first().examId, {}, {})
+                            "update" -> Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                                UpdateCard(update, updateDownload, {}, {}, {}, {}, Modifier.padding(20.dp))
+                            }
                         }
                     }
                 }
@@ -182,6 +216,12 @@ class ScreenshotTest {
         shot("21-lesson-dark")
         screen = "course"
         shot("22-course-dark")
+        screen = "update"
+        shot("27-update-dark")
+        theme = ThemeMode.LIGHT
+        shot("28-update")
+        updateDownload = DownloadState.Downloading(0.42f)
+        shot("29-update-downloading")
 
         // Опыт не начисляется дважды за одно и то же.
         runBlocking {

@@ -16,7 +16,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Полная история и теги нужны для списка изменений с предыдущей сборки.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -74,7 +77,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Проверка контента и логики
-        run: ./gradlew :app:testDebugUnitTest --tests 'app.erudit.ContentValidationTest' --tests 'app.erudit.LogicTest' --tests 'app.erudit.AnswerMatcherTest' --tests 'app.erudit.CountriesTest' --tests 'app.erudit.XpTest'
+        run: ./gradlew :app:testDebugUnitTest --tests 'app.erudit.ContentValidationTest' --tests 'app.erudit.LogicTest' --tests 'app.erudit.AnswerMatcherTest' --tests 'app.erudit.CountriesTest' --tests 'app.erudit.XpTest' --tests 'app.erudit.UpdateTest'
 
       - name: Сборка release APK
         run: ./gradlew :app:assembleRelease
@@ -93,16 +96,22 @@ jobs:
           name: Erudit-${{ github.run_number }}
           path: Erudit-${{ github.run_number }}.apk
 
+      # «Что нового» из сообщений коммитов: этот раздел приложение показывает в окне обновления.
+      - name: Описание релиза
+        env:
+          RUN: ${{ github.run_number }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          CERT: ${{ steps.apk.outputs.cert }}
+        run: |
+          python3 .github/scripts/release_notes.py > release-notes.md
+          cat release-notes.md
+
       - name: Публикация в Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: Эрудит, сборка ${{ github.run_number }}
-          body: |
-            Автоматическая сборка из ветки `${{ github.ref_name }}` (коммит ${{ github.sha }}).
-            Скачайте APK ниже и установите на Android 8.0+.
-
-            Отпечаток ключа подписи (SHA-256): `${{ steps.apk.outputs.cert }}`
-            Сборки с одинаковым отпечатком ставятся поверх друг друга без потери прогресса.
+          body_path: release-notes.md
           make_latest: true
           files: Erudit-${{ github.run_number }}.apk

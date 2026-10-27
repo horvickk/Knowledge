@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,10 @@ data class Settings(
     val sequential: Boolean = true,
     val onboarded: Boolean = false,
     val sessionSize: Int = 15,
+    val checkUpdates: Boolean = true,
+    /** «Позже» в окне обновления: сборка и день, до конца которого окно не показывается. */
+    val updateSnoozeBuild: Int = 0,
+    val updateSnoozeDay: Long = 0,
 )
 
 private val Context.dataStore by preferencesDataStore("settings")
@@ -38,6 +43,9 @@ class SettingsRepository(private val context: Context) {
         val sequential = booleanPreferencesKey("sequential")
         val onboarded = booleanPreferencesKey("onboarded")
         val sessionSize = intPreferencesKey("session_size")
+        val checkUpdates = booleanPreferencesKey("check_updates")
+        val updateSnoozeBuild = intPreferencesKey("update_snooze_build")
+        val updateSnoozeDay = longPreferencesKey("update_snooze_day")
     }
 
     val settings: Flow<Settings> = context.dataStore.data.map { p ->
@@ -51,6 +59,9 @@ class SettingsRepository(private val context: Context) {
             sequential = p[Keys.sequential] ?: true,
             onboarded = p[Keys.onboarded] ?: false,
             sessionSize = p[Keys.sessionSize] ?: 15,
+            checkUpdates = p[Keys.checkUpdates] ?: true,
+            updateSnoozeBuild = p[Keys.updateSnoozeBuild] ?: 0,
+            updateSnoozeDay = p[Keys.updateSnoozeDay] ?: 0,
         )
     }
 
@@ -65,6 +76,14 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSequential(enabled: Boolean) = set(Keys.sequential, enabled)
     suspend fun setOnboarded() = set(Keys.onboarded, true)
     suspend fun setSessionSize(size: Int) = set(Keys.sessionSize, size)
+    suspend fun setCheckUpdates(enabled: Boolean) = set(Keys.checkUpdates, enabled)
+
+    suspend fun snoozeUpdate(build: Int, day: Long) {
+        context.dataStore.edit {
+            it[Keys.updateSnoozeBuild] = build
+            it[Keys.updateSnoozeDay] = day
+        }
+    }
 
     suspend fun setReminderTime(hour: Int, minute: Int) {
         context.dataStore.edit {

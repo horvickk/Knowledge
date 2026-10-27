@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import android.graphics.Color as AndroidColor
 import app.erudit.data.prefs.Settings
 import app.erudit.data.prefs.ThemeMode
+import app.erudit.ui.components.UpdateDialogHost
 import app.erudit.ui.nav.AppNav
 import app.erudit.ui.nav.LocalContainer
 import app.erudit.ui.theme.EruditTheme
@@ -42,6 +43,7 @@ class MainActivity : ComponentActivity() {
                         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
                     } else {
                         AppNav(onboarded = s.onboarded)
+                        UpdateDialogHost(container.updates)
                     }
                 }
             }

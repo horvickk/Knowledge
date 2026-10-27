@@ -8,6 +8,7 @@ import app.erudit.data.content.ContentSource
 import app.erudit.data.db.AppDatabase
 import app.erudit.data.prefs.SettingsRepository
 import app.erudit.domain.StudyRepository
+import app.erudit.update.UpdateManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -42,12 +43,15 @@ class AppContainer(app: Application) {
 
     val study = StudyRepository(database.dao(), settings) { awaitContent() }
 
+    val updates = UpdateManager(app, scope, settings)
+
     suspend fun resetProgress() = withContext(Dispatchers.IO) { database.clearAllTables() }
 
     init {
         scope.launch(Dispatchers.IO) {
             _content.value = ContentLoader.load(AssetSource(app.assets))
         }
+        updates.checkOnStart()
     }
 }
 
