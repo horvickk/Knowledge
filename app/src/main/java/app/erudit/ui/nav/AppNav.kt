@@ -1,6 +1,7 @@
 package app.erudit.ui.nav
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -42,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -95,10 +97,20 @@ fun AppNav(onboarded: Boolean) {
         }
     }
 
+    // Пока идёт анимация перехода, системное «назад» игнорируется: второе быстрое нажатие
+    // иначе закрыло бы и следующий экран, хотя на глаз пользователь ещё на первом.
+    var settling by remember { mutableStateOf(false) }
+    LaunchedEffect(entry?.id) {
+        settling = true
+        delay(350)
+        settling = false
+    }
+
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f)) {
                 Graph(nav, if (onboarded) Routes.HOME else Routes.ONBOARDING)
+                BackHandler(enabled = settling) {}
             }
             if (showBar) BottomBar(nav, route)
         }
@@ -173,7 +185,6 @@ private fun BottomBar(nav: NavHostController, route: String?) {
 
 @Composable
 private fun Graph(nav: NavHostController, start: String) {
-    val back: () -> Unit = { nav.popBackStack() }
     val openLesson: (String) -> Unit = { nav.go(Routes.lesson(it)) }
     val openExam: (String) -> Unit = { nav.go(Routes.exam(it)) }
     val openTrainer: (String) -> Unit = { nav.go(Routes.trainer(it)) }
@@ -224,19 +235,19 @@ private fun Graph(nav: NavHostController, start: String) {
         composable("domain/{id}") { e ->
             DomainScreen(
                 domainId = e.arg("id"),
-                onBack = back,
+                onBack = { nav.popFrom(e) },
                 onCourse = { nav.go(Routes.course(it)) },
                 onExam = openExam,
                 onPractice = practice,
             )
         }
         composable("course/{id}") { e ->
-            CourseScreen(courseId = e.arg("id"), onBack = back, onLesson = openLesson, onExam = openExam, onPractice = practice)
+            CourseScreen(courseId = e.arg("id"), onBack = { nav.popFrom(e) }, onLesson = openLesson, onExam = openExam, onPractice = practice)
         }
         composable("lesson/{id}") { e ->
             LessonScreen(
                 lessonId = e.arg("id"),
-                onBack = back,
+                onBack = { nav.popFrom(e) },
                 onCheck = { nav.go(Routes.session("lesson", it)) },
                 onOpenLesson = { id ->
                     nav.navigate(Routes.lesson(id)) { popUpTo("lesson/{id}") { inclusive = true } }
@@ -245,7 +256,7 @@ private fun Graph(nav: NavHostController, start: String) {
         }
         composable("examintro/{id}") { e ->
             val id = e.arg("id")
-            ExamIntroScreen(examId = id, onBack = back, onStart = {
+            ExamIntroScreen(examId = id, onBack = { nav.popFrom(e) }, onStart = {
                 nav.navigate(Routes.session("exam", id))
             })
         }
@@ -253,18 +264,26 @@ private fun Graph(nav: NavHostController, start: String) {
             SessionScreen(
                 kindKey = e.arguments?.getString("kind") ?: "practice",
                 arg = e.arg("arg"),
-                onClose = back,
+                onClose = { nav.popFrom(e) },
                 onOpenLesson = { id -> nav.navigate(Routes.lesson(id)) { popUpTo("session/{kind}/{arg}") { inclusive = true } } },
             )
         }
-        composable("trainer/{id}") { e -> TrainerScreen(trainerId = e.arg("id"), onBack = back) }
-        composable(Routes.SEARCH) { SearchScreen(onBack = back, onLesson = openLesson) }
-        composable(Routes.BOOKMARKS) { BookmarksScreen(onBack = back, onLesson = openLesson) }
-        composable(Routes.ACHIEVEMENTS) { AchievementsScreen(onBack = back) }
-        composable(Routes.SETTINGS) { SettingsScreen(onBack = back) }
-        composable(Routes.EXAMS) { ExamHistoryScreen(onBack = back, onExam = openExam) }
+        composable("trainer/{id}") { e -> TrainerScreen(trainerId = e.arg("id"), onBack = { nav.popFrom(e) }) }
+        composable(Routes.SEARCH) { e -> SearchScreen(onBack = { nav.popFrom(e) }, onLesson = openLesson) }
+        composable(Routes.BOOKMARKS) { e -> BookmarksScreen(onBack = { nav.popFrom(e) }, onLesson = openLesson) }
+        composable(Routes.ACHIEVEMENTS) { e -> AchievementsScreen(onBack = { nav.popFrom(e) }) }
+        composable(Routes.SETTINGS) { e -> SettingsScreen(onBack = { nav.popFrom(e) }) }
+        composable(Routes.EXAMS) { e -> ExamHistoryScreen(onBack = { nav.popFrom(e) }, onExam = openExam) }
     }
 }
 
-private fun androidx.navigation.NavBackStackEntry.arg(name: String): String =
+/**
+ * Закрывает экран [entry], только если он всё ещё наверху стека. Иначе второе быстрое
+ * нажатие «назад», пока уходящий экран ещё анимируется, сняло бы со стека и следующий.
+ */
+private fun NavHostController.popFrom(entry: NavBackStackEntry) {
+    if (currentBackStackEntry?.id == entry.id) popBackStack()
+}
+
+private fun NavBackStackEntry.arg(name: String): String =
     Uri.decode(arguments?.getString(name).orEmpty())

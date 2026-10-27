@@ -92,25 +92,31 @@ fun TopBar(
     }
 }
 
-/** Экран-список с верхней панелью. */
+/**
+ * Экран-список с верхней панелью. Без заголовка, кнопки «назад» и действий панель не нужна:
+ * список начинается сразу под строкой состояния, а отступ сверху прокручивается вместе с ним.
+ */
 @Composable
 fun ListScreen(
     title: String? = null,
     onBack: (() -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {},
+    actions: (@Composable RowScope.() -> Unit)? = null,
     state: LazyListState = rememberLazyListState(),
     contentPadding: PaddingValues = PaddingValues(start = ScreenPadding, end = ScreenPadding, bottom = 32.dp),
     content: LazyListScope.() -> Unit,
 ) {
+    val bare = title == null && onBack == null && actions == null
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        TopBar(title, onBack, actions)
+        if (bare) Spacer(Modifier.windowInsetsPadding(WindowInsets.statusBars)) else TopBar(title, onBack, actions ?: {})
         LazyColumn(
             state = state,
             modifier = Modifier.fillMaxSize(),
             contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(0.dp),
-            content = content,
-        )
+        ) {
+            if (bare) item { Spacer(Modifier.height(20.dp)) }
+            content()
+        }
     }
 }
 
