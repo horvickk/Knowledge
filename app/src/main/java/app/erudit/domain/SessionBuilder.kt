@@ -9,10 +9,9 @@ import kotlin.random.Random
 
 /** Подбор вопросов для разных режимов. */
 object SessionBuilder {
-    const val LESSON_CHECK_SIZE = 5
-
+    /** Проверка после урока — все его вопросы в случайном порядке. */
     fun lessonCheck(lesson: Lesson, random: Random = Random.Default): List<Question> =
-        lesson.questions.shuffled(random).take(LESSON_CHECK_SIZE)
+        lesson.questions.shuffled(random)
 
     /** Все уроки в области видимости: область, курс, ступень, урок или всё («all»). */
     fun lessonsInScope(content: Content, scope: String): List<Lesson> = when {

@@ -71,7 +71,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
         Spacer(Modifier.height(12.dp))
         ChoiceChips(goals.mapIndexed { i, (label, xp) -> "$label · $xp" to (i == selected) }) { selected = it }
         Text(
-            "Это цель в очках опыта. 40 — примерно два урока или 10–15 минут.",
+            "Это цель в очках опыта. 40 — примерно новый урок и тренажёр или 10–15 минут.",
             style = MaterialTheme.typography.bodySmall,
             color = AppTheme.extra.muted,
             modifier = Modifier.padding(top = 8.dp),

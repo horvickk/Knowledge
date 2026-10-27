@@ -71,6 +71,7 @@ import app.erudit.ui.components.ThinProgress
 import app.erudit.ui.components.TopBar
 import app.erudit.ui.nav.LocalContainer
 import app.erudit.ui.screens.MiniBars
+import app.erudit.ui.screens.TrainerXp
 import app.erudit.ui.theme.AppTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -83,6 +84,7 @@ private data class GeoMiss(val country: Country, val typed: String)
 
 private data class GeoResult(val count: Int, val correct: Int, val seconds: Int, val misses: List<GeoMiss>, val previousBest: Int?) {
     val score: Int get() = GeoScore.encode(correct, seconds)
+    val xp: Int get() = (correct / 2).coerceAtMost(60)
     val record: Boolean get() = previousBest == null || score > previousBest
 }
 
@@ -97,6 +99,7 @@ fun GeoTrainerScreen(trainer: Trainer, onBack: () -> Unit) {
     var edited by remember { mutableStateOf(false) }
     var round by remember { mutableIntStateOf(0) }
     var result by remember { mutableStateOf<GeoResult?>(null) }
+    var gained by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(Unit) {
         val last = study.counters.first()[GeoScore.lastCountKey(trainer.id)]?.toInt()
@@ -137,15 +140,18 @@ fun GeoTrainerScreen(trainer: Trainer, onBack: () -> Unit) {
                 GeoPlay(flags, Countries.all.take(n)) { correct, seconds, misses ->
                     val r = GeoResult(n, correct, seconds, misses, previous)
                     result = r
+                    gained = null
                     phase = GeoPhase.RESULT
                     scope.launch {
-                        study.recordTrainer(GeoScore.key(trainer.id, n), r.score, xp = (correct / 2).coerceAtMost(60))
+                        // Опыт — раз в день на тренажёр, какое бы число стран ни выбиралось.
+                        gained = study.recordTrainer(GeoScore.key(trainer.id, n), r.score, xp = r.xp, xpGroup = trainer.id)
                     }
                 }
             }
             GeoPhase.RESULT -> GeoResultView(
                 flags = flags,
                 result = result!!,
+                gained = gained,
                 onAgain = { round++; phase = GeoPhase.PLAY },
                 onChangeCount = { phase = GeoPhase.INTRO },
                 onDone = onBack,
@@ -362,7 +368,14 @@ private fun GeoPlay(flags: Boolean, pool: List<Country>, onFinish: (correct: Int
 }
 
 @Composable
-private fun GeoResultView(flags: Boolean, result: GeoResult, onAgain: () -> Unit, onChangeCount: () -> Unit, onDone: () -> Unit) {
+private fun GeoResultView(
+    flags: Boolean,
+    result: GeoResult,
+    gained: Int?,
+    onAgain: () -> Unit,
+    onChangeCount: () -> Unit,
+    onDone: () -> Unit,
+) {
     val extra = AppTheme.extra
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -377,10 +390,12 @@ private fun GeoResultView(flags: Boolean, result: GeoResult, onAgain: () -> Unit
                 Text("${result.correct} из ${result.count}", style = MaterialTheme.typography.displaySmall)
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "За ${GeoScore.time(result.seconds)} · +${(result.correct / 2).coerceAtMost(60)} опыта",
+                    "За ${GeoScore.time(result.seconds)}",
                     style = MaterialTheme.typography.bodyLarge,
                     color = extra.muted,
                 )
+                Spacer(Modifier.height(4.dp))
+                TrainerXp(result.xp, gained)
                 if (!result.record && result.previousBest != null) {
                     Spacer(Modifier.height(6.dp))
                     Text(

@@ -86,14 +86,26 @@ class StudyRepository(
     suspend fun dueCards(limit: Int): List<Card> = dao.dueCards(today(), limit)
     suspend fun mistakeCards(limit: Int): List<Card> = dao.mistakeCards(limit)
 
-    /** Ответ на вопрос в любом режиме: обновляет карточку и дневную активность. */
-    suspend fun recordAnswer(question: Question, correct: Boolean, isReview: Boolean) = mutex.withLock {
+    /**
+     * Ответ на вопрос в любом режиме: обновляет карточку и дневную активность.
+     * Возвращает начисленный опыт (см. [Xp.forAnswer]).
+     */
+    suspend fun recordAnswer(question: Question, correct: Boolean, isReview: Boolean): Int = mutex.withLock {
         val now = System.currentTimeMillis()
         val today = today()
-        val card = dao.card(question.id) ?: Card(question.id, question.lessonId, due = today)
-        dao.upsertCards(listOf(Srs.answer(card, correct, today, now)))
+        val card = dao.card(question.id)
+        val xp = if (correct) Xp.forAnswer(card, today) else 0
+        dao.upsertCards(listOf(Srs.answer(card ?: Card(question.id, question.lessonId, due = today), correct, today, now)))
         if (isReview) bumpCounter(Counters.REVIEWS, 1)
-        addActivityLocked(xp = if (correct) Xp.CORRECT_ANSWER else 0, answered = 1, correct = if (correct) 1 else 0)
+        addActivityLocked(xp = xp, answered = 1, correct = if (correct) 1 else 0)
+        xp
+    }
+
+    /** Сколько опыта принесут ответы, если записать их сейчас, — для экзамена, где запись идёт после разбора. */
+    suspend fun answerXp(answers: List<Pair<Question, Boolean>>): Int {
+        val today = today()
+        val cards = cardsFor(answers.map { it.first.id })
+        return answers.sumOf { (q, ok) -> if (ok) Xp.forAnswer(cards[q.id], today) else 0 }
     }
 
     /** Завершение урока: все его вопросы попадают в интервальные повторения. */
@@ -130,7 +142,7 @@ class StudyRepository(
             val bonus = if (firstPass) passBonus(exam) else 0
             if (bonus > 0) addActivityLocked(xp = bonus)
             if (passed && correct == total) bumpCounter(Counters.PERFECT_EXAMS, 1)
-            ExamOutcome(passed, percent, bonus + correct * Xp.CORRECT_ANSWER, firstPass, id)
+            ExamOutcome(passed, percent, bonus, firstPass, id)
         }
         checkAchievements()
         return outcome
@@ -151,7 +163,7 @@ class StudyRepository(
             val firstPass = passed && dao.passCountExcept(exam.id, attemptId) == 0
             if (firstPass && !old.passed) addActivityLocked(xp = passBonus(exam))
             if (passed && correct == total && !(old.passed && old.correct == total)) bumpCounter(Counters.PERFECT_EXAMS, 1)
-            ExamOutcome(passed, percent, (if (firstPass) passBonus(exam) else 0) + correct * Xp.CORRECT_ANSWER, firstPass, attemptId)
+            ExamOutcome(passed, percent, if (firstPass) passBonus(exam) else 0, firstPass, attemptId)
         }
         checkAchievements()
         return outcome ?: ExamOutcome(false, 0, 0, false, attemptId)
@@ -165,7 +177,9 @@ class StudyRepository(
 
     /**
      * Результат тренажёра. [records] — рекорды для достижений: сохраняется максимум
-     * (для таблицы Шульте — минимум времени, см. [lowerIsBetter]).
+     * (для таблицы Шульте — минимум времени, см. [lowerIsBetter]). [xp] — опыт за эту тренировку;
+     * начисляется только превышение над уже полученным сегодня за тренажёр [xpGroup].
+     * Возвращает начисленный опыт.
      */
     suspend fun recordTrainer(
         trainer: String,
@@ -173,8 +187,9 @@ class StudyRepository(
         xp: Int,
         records: Map<String, Long> = emptyMap(),
         lowerIsBetter: Set<String> = emptySet(),
-    ) {
-        mutex.withLock {
+        xpGroup: String = trainer,
+    ): Int {
+        val gained = mutex.withLock {
             dao.insertTrainerScore(TrainerScore(0, trainer, score, System.currentTimeMillis()))
             for ((key, value) in records) {
                 val old = dao.counter(key)
@@ -185,9 +200,14 @@ class StudyRepository(
                 }
                 if (better) dao.setCounter(Counter(key, value))
             }
-            addActivityLocked(xp = xp)
+            val key = Counters.trainerXp(xpGroup)
+            val (gain, stored) = Xp.trainerGain(dao.counter(key), today(), xp)
+            dao.setCounter(Counter(key, stored))
+            addActivityLocked(xp = gain)
+            gain
         }
         checkAchievements()
+        return gained
     }
 
     /** Запоминает значение без сравнения с прежним — например, последний выбор пользователя. */

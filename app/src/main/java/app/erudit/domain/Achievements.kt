@@ -30,6 +30,9 @@ object Counters {
     const val SEQ_PERFECT = "seq_perfect"
     const val LOGIC_PERFECT = "logic_perfect"
     const val BEST_STREAK = "best_streak"
+
+    /** Опыт, начисленный тренажёру за сегодня (см. [Xp.trainerGain]). */
+    fun trainerXp(trainer: String) = "trainer_xp:$trainer"
 }
 
 enum class AchievementGroup(val title: String) {

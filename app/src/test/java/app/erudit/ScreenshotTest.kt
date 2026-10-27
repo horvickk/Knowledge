@@ -17,6 +17,7 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import kotlinx.coroutines.flow.first
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -121,6 +122,17 @@ class ScreenshotTest {
         shot("13-session-wrong")
         compose.onNodeWithText("Я ответил правильно").performClick()
         shot("14-session-accepted")
+        // Переход к следующему вопросу: уходящий вопрос не должен мигать вердиктом «Неверно».
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithText("Далее").performClick()
+        repeat(6) {
+            compose.mainClock.advanceTimeBy(50)
+            assertTrue(
+                "во время перехода виден «Неверно»",
+                compose.onAllNodesWithText("Неверно").fetchSemanticsNodes().isEmpty(),
+            )
+        }
+        compose.mainClock.autoAdvance = true
 
         // Экзамен: без подсказок, разбор в конце, засчитанные ответы пересчитывают результат.
         screen = "exam-session"
@@ -170,6 +182,18 @@ class ScreenshotTest {
         shot("21-lesson-dark")
         screen = "course"
         shot("22-course-dark")
+
+        // Опыт не начисляется дважды за одно и то же.
+        runBlocking {
+            val study = container.study
+            val known = lessons.first().questions.filterIndexed { i, _ -> i % 4 != 0 }
+            assertEquals("повторные верные ответы", 0, known.sumOf { study.recordAnswer(it, true, isReview = false) })
+            assertEquals("урок пройден повторно", 0, study.completeLesson(lessons.first(), 8, 8))
+            val first = study.recordTrainer("stroop", 20, xp = 10)
+            assertEquals(10, first)
+            assertEquals("тренажёр второй раз за день", 0, study.recordTrainer("stroop", 18, xp = 9))
+            assertEquals("только прибавка к лучшему за день", 4, study.recordTrainer("stroop", 28, xp = 14))
+        }
     }
 
     private fun shot(name: String) {

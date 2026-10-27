@@ -86,6 +86,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 
 enum class SessionKind(val key: String) {
     LESSON("lesson"), PRACTICE("practice"), REVIEW("review"), MISTAKES("mistakes"), BLITZ("blitz"), EXAM("exam");
@@ -159,6 +160,10 @@ class SessionViewModel(
     /** Сколько ответов уже записано в статистику: ответ записывается, когда пользователь идёт дальше. */
     private var recorded = 0
 
+    /** Запись ответов идёт по очереди; итог сессии ждёт её, чтобы показать начисленный опыт. */
+    private var recording: Job? = null
+    private var earned = AtomicInteger()
+
     /** Попытка экзамена в базе — её пересчитывают, когда пользователь засчитывает ответы. */
     private var attemptId = 0L
     private var examAnswersSaved = false
@@ -173,6 +178,7 @@ class SessionViewModel(
         saveExamAnswers()
         requeued.clear()
         recorded = 0
+        earned = AtomicInteger()
         attemptId = 0
         examAnswersSaved = false
         _state.value = SessionState(kind = kind)
@@ -327,8 +333,11 @@ class SessionViewModel(
         val pending = answers.drop(recorded)
         recorded = answers.size
         if (pending.isEmpty()) return
-        container.scope.launch {
-            pending.forEach { study.recordAnswer(it.item.question, it.correct, isReview = kind == SessionKind.REVIEW) }
+        val previous = recording
+        val sink = earned
+        recording = container.scope.launch {
+            previous?.join()
+            pending.forEach { sink.addAndGet(study.recordAnswer(it.item.question, it.correct, isReview = kind == SessionKind.REVIEW)) }
         }
     }
 
@@ -341,6 +350,8 @@ class SessionViewModel(
         viewModelScope.launch {
             val answers = s.answers
             val correct = answers.count { it.correct }
+            recording?.join()
+            val xp = earned.get()
             val result = when (kind) {
                 SessionKind.EXAM -> {
                     val e = exam!!
@@ -355,7 +366,7 @@ class SessionViewModel(
                     SessionResult(
                         correct = correct,
                         total = total,
-                        xp = outcome.xp,
+                        xp = outcome.xp + study.answerXp(answers.map { it.item.question to it.correct }),
                         exam = e,
                         passed = outcome.passed,
                         mistakes = answers.filter { !it.correct } + unanswered,
@@ -367,21 +378,22 @@ class SessionViewModel(
                     val lesson = content.lessonsById.getValue(arg)
                     val bonus = study.completeLesson(lesson, correct, answers.size)
                     SessionResult(
-                        correct, answers.size, correct * Xp.CORRECT_ANSWER + bonus,
+                        correct, answers.size, xp + bonus,
                         mistakes = answers.filter { !it.correct },
-                        note = "Урок пройден. Все его вопросы добавлены в интервальные повторения.",
+                        note = if (bonus > 0) "Урок пройден. Все его вопросы добавлены в интервальные повторения." else xpNote(correct, xp),
                     )
                 }
                 SessionKind.BLITZ -> {
                     study.recordBlitz(correct)
-                    SessionResult(correct, answers.size, correct * Xp.CORRECT_ANSWER, mistakes = answers.filter { !it.correct })
+                    SessionResult(correct, answers.size, xp, mistakes = answers.filter { !it.correct }, note = xpNote(correct, xp))
                 }
                 else -> {
                     // Повторённые карточки считаются один раз: по последней попытке.
                     val last = answers.associateBy { it.item.question.id }.values
                     SessionResult(
-                        last.count { it.correct }, last.size, correct * Xp.CORRECT_ANSWER,
+                        last.count { it.correct }, last.size, xp,
                         mistakes = answers.filter { !it.correct }.distinctBy { it.item.question.id },
+                        note = xpNote(correct, xp),
                     )
                 }
             }
@@ -422,12 +434,14 @@ class SessionViewModel(
         }
         viewModelScope.launch {
             revising.withLock {
-                val latest = _state.value.answers.count { it.correct }
+                val now = _state.value.answers
+                val latest = now.count { it.correct }
                 val outcome = study.reviseExam(attemptId, e, latest)
+                val answerXp = study.answerXp(now.map { it.item.question to it.correct })
                 _state.update { st ->
                     // Пока шёл пересчёт, пользователь мог засчитать ещё ответ — тогда ждём следующего.
                     if (st.answers.count { it.correct } != latest) st
-                    else st.copy(result = st.result?.copy(xp = outcome.xp, passed = outcome.passed, note = examNote(e, outcome)))
+                    else st.copy(result = st.result?.copy(xp = outcome.xp + answerXp, passed = outcome.passed, note = examNote(e, outcome)))
                 }
             }
         }
@@ -447,6 +461,14 @@ class SessionViewModel(
         saveExamAnswers()
         super.onCleared()
     }
+
+    /** Пояснение, если опыта меньше, чем верных ответов: за уже известные вопросы опыт не начисляется. */
+    private fun xpNote(correct: Int, xp: Int): String? =
+        if (xp < correct * Xp.CORRECT_ANSWER) {
+            "Опыт начисляется за первый верный ответ на вопрос и за повторения, срок которых наступил. За уже известные вопросы его нет."
+        } else {
+            null
+        }
 
     private fun examNote(e: Exam, outcome: ExamOutcome): String = when {
         outcome.firstPass -> "Экзамен сдан впервые: +${outcome.xp} опыта"
@@ -551,6 +573,15 @@ private fun SessionHeader(state: SessionState, onClose: () -> Unit) {
     }
 }
 
+/** Снимок вопроса для анимации перехода: уходящий вопрос дорисовывается со своим ответом и вердиктом. */
+private data class QuestionFrame(
+    val index: Int,
+    val item: SessionItem,
+    val input: String,
+    val verdict: Boolean?,
+    val overridden: Boolean,
+)
+
 @Composable
 private fun QuestionView(
     state: SessionState,
@@ -564,14 +595,15 @@ private fun QuestionView(
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))) {
         SessionHeader(state, onClose)
         AnimatedContent(
-            targetState = state.index,
+            targetState = QuestionFrame(state.index, item, state.input, state.verdict, state.overridden),
+            contentKey = { it.index },
             transitionSpec = { (slideInHorizontally { it / 6 } + fadeIn()) togetherWith fadeOut() },
             label = "question",
             modifier = Modifier.weight(1f),
-        ) { index ->
-            val current = state.items.getOrNull(index) ?: item
-            val active = index == state.index
-            val verdict = if (active) state.verdict else null
+        ) { frame ->
+            val current = frame.item
+            val active = frame.index == state.index
+            val verdict = frame.verdict
             val scroll = rememberScrollState()
             LaunchedEffect(verdict) { if (verdict != null) scroll.animateScrollTo(scroll.maxValue) }
             Column(
@@ -598,7 +630,7 @@ private fun QuestionView(
                     Spacer(Modifier.height(16.dp))
                 }
                 AnswerField(
-                    value = if (active) state.input else "",
+                    value = frame.input,
                     onValueChange = onInput,
                     verdict = verdict,
                     onSubmit = onSubmit,
@@ -609,7 +641,7 @@ private fun QuestionView(
                     val q = current.question
                     AnswerFeedback(
                         correct = verdict == true,
-                        overridden = state.overridden,
+                        overridden = frame.overridden,
                         rightAnswer = q.options[q.correct],
                         explanation = if (state.kind == SessionKind.BLITZ) null else q.explanation,
                         onOverride = onAccept,

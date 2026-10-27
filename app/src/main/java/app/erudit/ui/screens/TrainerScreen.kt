@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.erudit.trainers.Trainer
 import app.erudit.trainers.Trainers
@@ -68,15 +69,17 @@ fun TrainerScreen(trainerId: String, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var phase by remember { mutableStateOf(Phase.INTRO) }
     var outcome by remember { mutableStateOf<TrainerOutcome?>(null) }
+    var gained by remember { mutableStateOf<Int?>(null) }
     var round by remember { mutableIntStateOf(0) }
     val history by remember { study.trainerHistory(trainer.id, 20) }.collectAsState(initial = emptyList())
     val best = if (trainer.lowerIsBetter) history.minOfOrNull { it.score } else history.maxOfOrNull { it.score }
 
     val finish: (TrainerOutcome) -> Unit = { o ->
         outcome = o
+        gained = null
         phase = Phase.RESULT
         scope.launch {
-            study.recordTrainer(
+            gained = study.recordTrainer(
                 trainer.id, o.score, o.xp, o.records,
                 lowerIsBetter = if (trainer.lowerIsBetter) o.records.keys else emptySet(),
             )
@@ -106,6 +109,7 @@ fun TrainerScreen(trainerId: String, onBack: () -> Unit) {
             Phase.RESULT -> TrainerResult(
                 trainer = trainer,
                 outcome = outcome!!,
+                gained = gained,
                 previousBest = best,
                 onAgain = { round++; phase = Phase.PLAY },
                 onDone = onBack,
@@ -145,6 +149,28 @@ private fun TrainerIntro(trainer: Trainer, best: Int?, scores: List<Int>, onStar
     }
 }
 
+/**
+ * Опыт за тренировку. Тренажёр приносит опыт раз в день — по лучшему результату дня, поэтому
+ * начисленное [gained] бывает меньше заработанного [xp]; null — запись ещё не завершилась.
+ */
+@Composable
+fun TrainerXp(xp: Int, gained: Int?, modifier: Modifier = Modifier) {
+    val muted = AppTheme.extra.muted
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(if (gained == null) " " else "+$gained опыта", style = MaterialTheme.typography.bodyMedium, color = muted)
+        if (gained != null && gained < xp) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (gained == 0) "Опыт за этот тренажёр сегодня уже получен. Превзойдите лучший результат дня — и получите разницу."
+                else "Начислена разница с лучшим результатом дня: тренажёр приносит опыт раз в день.",
+                style = MaterialTheme.typography.bodySmall,
+                color = muted,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
 @Composable
 fun MiniBars(values: List<Int>, invert: Boolean = false, modifier: Modifier = Modifier) {
     val max = values.maxOrNull()?.coerceAtLeast(1) ?: 1
@@ -174,7 +200,14 @@ fun MiniBars(values: List<Int>, invert: Boolean = false, modifier: Modifier = Mo
 }
 
 @Composable
-private fun TrainerResult(trainer: Trainer, outcome: TrainerOutcome, previousBest: Int?, onAgain: () -> Unit, onDone: () -> Unit) {
+private fun TrainerResult(
+    trainer: Trainer,
+    outcome: TrainerOutcome,
+    gained: Int?,
+    previousBest: Int?,
+    onAgain: () -> Unit,
+    onDone: () -> Unit,
+) {
     val record = previousBest == null ||
         (if (trainer.lowerIsBetter) outcome.score < previousBest else outcome.score > previousBest)
     Column(
@@ -192,7 +225,7 @@ private fun TrainerResult(trainer: Trainer, outcome: TrainerOutcome, previousBes
         Spacer(Modifier.height(10.dp))
         Text(outcome.summary, style = MaterialTheme.typography.bodyLarge, color = AppTheme.extra.muted)
         Spacer(Modifier.height(6.dp))
-        Text("+${outcome.xp} опыта", style = MaterialTheme.typography.bodyMedium, color = AppTheme.extra.muted)
+        TrainerXp(outcome.xp, gained)
         Spacer(Modifier.weight(1f))
         PrimaryButton("Ещё раз", onClick = onAgain)
         Spacer(Modifier.height(10.dp))

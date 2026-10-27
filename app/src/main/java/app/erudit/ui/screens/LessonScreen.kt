@@ -142,7 +142,7 @@ fun LessonScreen(lessonId: String, onBack: () -> Unit, onCheck: (String) -> Unit
                         SecondaryButton("Проверить себя ещё раз", onClick = { onCheck(lesson.id) })
                     } else {
                         Text(
-                            "Закрепите прочитанное: ${plural(minOf(5, lesson.questions.size), "вопрос", "вопроса", "вопросов")} по уроку.",
+                            "Закрепите прочитанное: ${plural(lesson.questions.size, "вопрос", "вопроса", "вопросов")} по уроку.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = AppTheme.extra.muted,
                             modifier = Modifier.padding(bottom = 14.dp),

@@ -144,7 +144,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             val goals = listOf(20, 40, 60, 100, 150)
             ChoiceChips(goals.map { "$it" to (settings.dailyGoal == it) }) { i -> scope.launch { repo.setDailyGoal(goals[i]) } }
             Text(
-                "Урок даёт 15 опыта, каждый верный ответ — 2, экзамены — бонус.",
+                "Опыт дают только новые успехи: первое прохождение урока — 15, первый верный ответ на вопрос и повторение по графику — 2, первая сдача экзамена — бонус, тренажёр — раз в день по лучшему результату.",
                 style = MaterialTheme.typography.bodySmall,
                 color = AppTheme.extra.muted,
                 modifier = Modifier.padding(top = 8.dp),
