@@ -108,6 +108,15 @@ class StudyRepository(
         return answers.sumOf { (q, ok) -> if (ok) Xp.forAnswer(cards[q.id], today) else 0 }
     }
 
+    /**
+     * Удаляет карточки вопросов, которых больше нет в контенте: вопрос заменили или убрали. Иначе они
+     * считались бы в повторениях на сегодня, но в сессию не попадали бы никогда.
+     */
+    suspend fun pruneOrphanCards(content: Content) = mutex.withLock {
+        val orphans = dao.knownQuestionIds().filter { it !in content.questionsById }
+        orphans.chunked(500).forEach { dao.deleteCards(it) }
+    }
+
     /** Завершение урока: все его вопросы попадают в интервальные повторения. */
     suspend fun completeLesson(lesson: Lesson, quizCorrect: Int, quizTotal: Int): Int {
         val xp = mutex.withLock {

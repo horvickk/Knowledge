@@ -38,6 +38,7 @@ import android.graphics.Canvas
 import android.os.Looper
 import org.robolectric.Shadows
 import androidx.test.core.app.ApplicationProvider
+import app.erudit.data.db.Card
 import app.erudit.data.prefs.ThemeMode
 import app.erudit.ui.nav.LocalContainer
 import app.erudit.ui.screens.CatalogScreen
@@ -233,6 +234,13 @@ class ScreenshotTest {
             assertEquals(10, first)
             assertEquals("тренажёр второй раз за день", 0, study.recordTrainer("stroop", 18, xp = 9))
             assertEquals("только прибавка к лучшему за день", 4, study.recordTrainer("stroop", 28, xp = 14))
+
+            // Карточки заменённых вопросов удаляются, остальные остаются.
+            val dao = container.database.dao()
+            dao.upsertCards(listOf(Card("нет-такого-урока#1", "нет-такого-урока", due = 0)))
+            val before = dao.knownQuestionIds().size
+            study.pruneOrphanCards(content)
+            assertEquals(before - 1, dao.knownQuestionIds().size)
         }
     }
 

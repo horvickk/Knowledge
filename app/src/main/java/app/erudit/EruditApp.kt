@@ -49,7 +49,9 @@ class AppContainer(app: Application) {
 
     init {
         scope.launch(Dispatchers.IO) {
-            _content.value = ContentLoader.load(AssetSource(app.assets))
+            val content = ContentLoader.load(AssetSource(app.assets))
+            _content.value = content
+            study.pruneOrphanCards(content)
         }
         updates.checkOnStart()
     }

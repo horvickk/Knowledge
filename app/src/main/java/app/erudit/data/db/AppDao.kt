@@ -64,6 +64,9 @@ interface AppDao {
     @Query("SELECT questionId FROM card")
     suspend fun knownQuestionIds(): List<String>
 
+    @Query("DELETE FROM card WHERE questionId IN (:ids)")
+    suspend fun deleteCards(ids: List<String>)
+
     @Query("SELECT lessonId, SUM(correct) AS correct, SUM(wrong) AS wrong FROM card GROUP BY lessonId")
     fun lessonAccuracy(): Flow<List<LessonAccuracy>>
 
