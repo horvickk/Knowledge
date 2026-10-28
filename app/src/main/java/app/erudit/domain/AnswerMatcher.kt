@@ -79,6 +79,8 @@ object AnswerMatcher {
 
         // Отрицание, которого нет в верном ответе, меняет смысл.
         if (user.any { it in negations && it !in right }) return false
+        // Одно отрицание без содержательных слов («не», «что-то не то») ничего не утверждает.
+        if (user.all { it in negations }) return false
 
         val inRight = user.map { u -> right.any { tokenMatch(u, it) } }
         val inWrong = user.map { u -> others.any { tokenMatch(u, it) } }
@@ -87,8 +89,10 @@ object AnswerMatcher {
         if (user.indices.any { isNumber(user[it]) && !inRight[it] }) return false
 
         val recall = recall(user, right)
-        // Совпавшее число говорит о точности больше, чем слово, и весит вдвое.
-        val distinctive = user.indices.filter { inRight[it] && !inWrong[it] }.sumOf { if (isNumber(user[it])) 2L else 1L }
+        // Совпавшее число говорит о точности больше, чем слово, и весит вдвое. Отрицание само по себе
+        // ответ не отличает: «не» есть во многих верных вариантах.
+        val distinctive = user.indices.filter { inRight[it] && !inWrong[it] && user[it] !in negations }
+            .sumOf { if (isNumber(user[it])) 2L else 1L }
 
         // 3. Все слова ответа взяты из верного варианта, и хотя бы одно отличает его от остальных.
         if (inRight.all { it } && distinctive >= 1 && (recall >= 0.34 || distinctive >= 2)) return true

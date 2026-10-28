@@ -59,6 +59,7 @@ import app.erudit.data.content.Question
 import app.erudit.domain.AnswerMatcher
 import app.erudit.domain.ExamOutcome
 import app.erudit.domain.SessionBuilder
+import app.erudit.domain.Unlocks
 import app.erudit.domain.Xp
 import app.erudit.ui.components.AcceptButton
 import app.erudit.ui.components.AnswerFeedback
@@ -205,7 +206,10 @@ class SessionViewModel(
                     val lessons = SessionBuilder.lessonsInScope(content, arg)
                     val done = study.completedLessons.first()
                     val studied = lessons.filter { it.id in done }
-                    val pool = (studied.ifEmpty { if (arg == "all") emptyList() else lessons }).flatMap { it.questions }
+                    // Ничего не пройдено — вопросы открытых уроков: закрытые ступени не подсматриваем.
+                    val unlocks = Unlocks(content, done, study.passedExams.first(), container.settings.settings.first().sequential)
+                    val open = lessons.filter { unlocks.lessonOpen(it) }
+                    val pool = (studied.ifEmpty { if (arg == "all") emptyList() else open }).flatMap { it.questions }
                     if (pool.isEmpty()) empty = "Пройдите хотя бы один урок — и здесь появятся вопросы для тренировки."
                     SessionBuilder.practice(pool, study.cardsFor(pool.map { it.id }), size)
                 }
@@ -224,13 +228,15 @@ class SessionViewModel(
                 }
                 SessionKind.BLITZ -> {
                     title = "Блиц"
-                    // Ответ печатается, поэтому в блиц идут вопросы с короткими ответами.
-                    val short = { q: Question -> !AnswerMatcher.needsOptions(q) && AnswerMatcher.tokens(q.options[q.correct]).size <= 3 }
                     val done = study.completedLessons.first()
                     timeLimit = BLITZ_SECONDS
-                    withContext(Dispatchers.Default) {
-                        val learned = content.lessons.filter { it.id in done }.flatMap { it.questions }.filter(short)
-                        (if (learned.size >= 20) learned else content.lessons.flatMap { it.questions }.filter(short)).shuffled().take(80)
+                    val learned = withContext(Dispatchers.Default) { SessionBuilder.blitzPool(content, done) }
+                    if (learned.size < SessionBuilder.BLITZ_MIN) {
+                        empty = "Блиц идёт по пройденным урокам, и для него нужно хотя бы ${SessionBuilder.BLITZ_MIN} " +
+                            "вопросов с короткими ответами — сейчас ${learned.size}. Пройдите ещё пару уроков."
+                        emptyList()
+                    } else {
+                        learned.shuffled().take(80)
                     }
                 }
                 SessionKind.EXAM -> {

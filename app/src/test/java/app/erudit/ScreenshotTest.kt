@@ -149,6 +149,13 @@ class ScreenshotTest {
                 screen = s
                 shot("%02d-%s".format(i + 2, s))
             }
+        // Урок второй ступени до экзамена первой: читать можно, проверки нет — вместо неё подсказка.
+        screen = "lesson"
+        shot("05-lesson")
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("пока закрыта", substring = true))
+        compose.onNodeWithText("пока закрыта", substring = true).assertExists()
+        assertTrue("у закрытого урока нет проверки", compose.onAllNodesWithText("Проверить себя").fetchSemanticsNodes().isEmpty())
+
         // Ввод ответа: неверный ответ и кнопка «Я ответил правильно».
         screen = "session"
         shot("12-session-empty")

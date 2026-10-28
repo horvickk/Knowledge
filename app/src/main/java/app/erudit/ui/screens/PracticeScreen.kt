@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.erudit.domain.Counters
+import app.erudit.domain.SessionBuilder
 import app.erudit.trainers.Trainers
 import app.erudit.ui.components.DomainBadge
 import app.erudit.ui.components.IconBadge
@@ -57,6 +58,9 @@ fun PracticeScreen(
     val mistakes by study.mistakeCount.collectAsState(initial = 0)
     val counters by study.counters.collectAsState(initial = emptyMap())
     val bests by study.trainerBests.collectAsState(initial = emptyList())
+    val blitzReady = remember(content, unlocks.completed) {
+        SessionBuilder.blitzPool(content, unlocks.completed).size
+    }
 
     ListScreen {
         item {
@@ -104,8 +108,13 @@ fun PracticeScreen(
             )
             NavRow(
                 title = "Блиц",
-                subtitle = "90 секунд, короткие ответы · рекорд ${counters[Counters.BLITZ_BEST] ?: 0}",
+                subtitle = if (blitzReady >= SessionBuilder.BLITZ_MIN) {
+                    "90 секунд, короткие ответы · рекорд ${counters[Counters.BLITZ_BEST] ?: 0}"
+                } else {
+                    "По пройденным урокам — откроется, когда наберётся ${SessionBuilder.BLITZ_MIN} вопросов (сейчас $blitzReady)"
+                },
                 onClick = onBlitz,
+                enabled = blitzReady >= SessionBuilder.BLITZ_MIN,
                 leading = { IconBadge(Icons.Outlined.Bolt, AppTheme.extra.warm) },
             )
         }
@@ -144,7 +153,7 @@ fun PracticeScreen(
                 val done = d.lessons.count { it.id in unlocks.completed }
                 NavRow(
                     title = d.title,
-                    subtitle = if (done == 0) "Уроки ещё не пройдены — вопросы из всей области" else "Пройдено уроков: $done",
+                    subtitle = if (done == 0) "Уроки ещё не пройдены — вопросы из открытых уроков области" else "Пройдено уроков: $done",
                     onClick = { onPractice(d.id) },
                     leading = { DomainBadge(d.icon, domainColor(d.color), size = 36.dp) },
                 )

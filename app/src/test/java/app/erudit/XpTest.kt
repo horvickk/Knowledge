@@ -7,6 +7,7 @@ import app.erudit.domain.SessionBuilder
 import app.erudit.domain.Srs
 import app.erudit.domain.Xp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
@@ -64,6 +65,20 @@ class XpTest {
         assertEquals(0, same)
         val (nextDay, _) = Xp.trainerGain(s3, today + 1, 6)
         assertEquals("на следующий день — снова", 6, nextDay)
+    }
+
+    @Test
+    fun blitzUsesOnlyCompletedLessons() {
+        val root = File("src/main/assets")
+        val content = ContentLoader.load(object : ContentSource {
+            override fun list(path: String): List<String> = File(root, path).list()?.toList().orEmpty()
+            override fun read(path: String): String = File(root, path).readText()
+        })
+        assertTrue("новичку блиц не из чего собрать", SessionBuilder.blitzPool(content, emptySet()).isEmpty())
+        val done = content.lessons.take(3).map { it.id }.toSet()
+        val pool = SessionBuilder.blitzPool(content, done)
+        assertTrue("три урока дают блиц", pool.size >= SessionBuilder.BLITZ_MIN)
+        assertTrue(pool.all { it.lessonId in done })
     }
 
     @Test

@@ -29,11 +29,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.erudit.domain.Unlocks
 import app.erudit.ui.components.Loading
 import app.erudit.ui.components.PrimaryButton
 import app.erudit.ui.components.ScreenPadding
@@ -47,6 +49,7 @@ import app.erudit.ui.nav.LocalContainer
 import app.erudit.ui.nav.rememberContent
 import app.erudit.ui.theme.AppTheme
 import app.erudit.ui.theme.domainColor
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 @Composable
@@ -56,9 +59,17 @@ fun LessonScreen(lessonId: String, onBack: () -> Unit, onCheck: (String) -> Unit
     val course = content.courseOf(lesson)
     val domain = content.domainOf(lesson)
     val stage = course.stages[lesson.stageIndex - 1]
-    val study = LocalContainer.current.study
+    val container = LocalContainer.current
+    val study = container.study
     val unlocks = rememberUnlocks(content)
     val completed = lesson.id in unlocks.completed
+    // Урок из закрытой ступени (открыт из поиска, закладок или «факта дня») можно читать, но не проходить.
+    // null — сданные экзамены и настройки ещё грузятся: не показываем ни кнопку, ни подсказку.
+    val stageOpen by produceState<Boolean?>(null, lesson.id) {
+        combine(study.passedExams, container.settings.settings) { passed, s ->
+            Unlocks(content, emptySet(), passed, s.sequential).lessonOpen(lesson)
+        }.collect { value = it }
+    }
     val accent = domainColor(domain.color)
     val blocks = remember(lesson.id) { Markdown.parse(lesson.body) }
     val scope = rememberCoroutineScope()
@@ -140,7 +151,16 @@ fun LessonScreen(lessonId: String, onBack: () -> Unit, onCheck: (String) -> Unit
                             Spacer(Modifier.height(10.dp))
                         }
                         SecondaryButton("Проверить себя ещё раз", onClick = { onCheck(lesson.id) })
-                    } else {
+                    } else if (stageOpen == false) {
+                        val previous = course.stages.getOrNull(stage.index - 2)
+                        Text(
+                            "Ступень «${stage.title}» пока закрыта. Урок можно прочитать, а проверка откроется " +
+                                (previous?.let { "после экзамена ступени «${it.title}». " } ?: "позже. ") +
+                                "Последовательное обучение можно отключить в настройках.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = AppTheme.extra.muted,
+                        )
+                    } else if (stageOpen == true) {
                         Text(
                             "Закрепите прочитанное: ${plural(lesson.questions.size, "вопрос", "вопроса", "вопросов")} по уроку.",
                             style = MaterialTheme.typography.bodyMedium,

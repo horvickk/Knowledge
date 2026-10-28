@@ -13,6 +13,18 @@ object SessionBuilder {
     fun lessonCheck(lesson: Lesson, random: Random = Random.Default): List<Question> =
         lesson.questions.shuffled(random)
 
+    /** Сколько вопросов нужно для блица: меньше — он закончится раньше, чем время. */
+    const val BLITZ_MIN = 10
+
+    /**
+     * Вопросы для блица — только из пройденных уроков: ответы записываются в повторения, и вопросы
+     * непройденных уроков попали бы туда раньше самого урока. Ответ печатается за секунды, поэтому
+     * берутся вопросы с короткими ответами.
+     */
+    fun blitzPool(content: Content, completed: Set<String>): List<Question> =
+        content.lessons.filter { it.id in completed }.flatMap { it.questions }
+            .filter { !AnswerMatcher.needsOptions(it) && AnswerMatcher.tokens(it.options[it.correct]).size <= 3 }
+
     /** Все уроки в области видимости: область, курс, ступень, урок или всё («all»). */
     fun lessonsInScope(content: Content, scope: String): List<Lesson> = when {
         scope == "all" -> content.lessons
