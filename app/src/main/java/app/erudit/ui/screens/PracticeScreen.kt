@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -50,7 +51,7 @@ fun PracticeScreen(
     val content = rememberContent() ?: return Loading()
     val study = LocalContainer.current.study
     val unlocks = rememberUnlocks(content)
-    val due by remember { study.dueCount() }.collectAsState(initial = 0)
+    val due by remember { study.dueCount() }.collectAsStateWithLifecycle(initialValue = 0)
     val cards by study.cardCount.collectAsState(initial = 0)
     val mature by study.matureCount.collectAsState(initial = 0)
     val mistakes by study.mistakeCount.collectAsState(initial = 0)

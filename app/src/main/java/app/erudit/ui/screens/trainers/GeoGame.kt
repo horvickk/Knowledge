@@ -69,13 +69,16 @@ import app.erudit.ui.components.SecondaryButton
 import app.erudit.ui.components.StatTile
 import app.erudit.ui.components.ThinProgress
 import app.erudit.ui.components.TopBar
+import app.erudit.ui.components.plural
 import app.erudit.ui.nav.LocalContainer
 import app.erudit.ui.screens.MiniBars
 import app.erudit.ui.screens.TrainerXp
 import app.erudit.ui.theme.AppTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class GeoPhase { INTRO, PLAY, RESULT }
 
@@ -92,7 +95,8 @@ private data class GeoResult(val count: Int, val correct: Int, val seconds: Int,
 @Composable
 fun GeoTrainerScreen(trainer: Trainer, onBack: () -> Unit) {
     val flags = trainer.id == "flags"
-    val study = LocalContainer.current.study
+    val container = LocalContainer.current
+    val study = container.study
     val scope = rememberCoroutineScope()
     var phase by remember { mutableStateOf(GeoPhase.INTRO) }
     var countText by remember { mutableStateOf("20") }
@@ -109,7 +113,10 @@ fun GeoTrainerScreen(trainer: Trainer, onBack: () -> Unit) {
     val history by remember(count) {
         study.trainerHistory(GeoScore.key(trainer.id, count ?: 0), 20)
     }.collectAsState(initial = emptyList())
-    val best = history.maxOfOrNull { it.score }
+    // Рекорд и число тренировок — по всей истории для этого числа стран, а не по последним 20.
+    val stats by remember { study.trainerBests }.collectAsState(initial = emptyList())
+    val mine = stats.firstOrNull { it.trainer == GeoScore.key(trainer.id, count ?: 0) }
+    val best = mine?.best
 
     val start = {
         if (count != null) {
@@ -131,6 +138,7 @@ fun GeoTrainerScreen(trainer: Trainer, onBack: () -> Unit) {
                 },
                 count = count,
                 best = best,
+                sessions = mine?.sessions ?: 0,
                 scores = history.map { GeoScore.correct(it.score) }.reversed(),
                 onStart = start,
             )
@@ -142,9 +150,11 @@ fun GeoTrainerScreen(trainer: Trainer, onBack: () -> Unit) {
                     result = r
                     gained = null
                     phase = GeoPhase.RESULT
-                    scope.launch {
+                    // Запись — в фоне приложения: «Готово» сразу после тренировки не должно её отменять.
+                    container.scope.launch {
                         // Опыт — раз в день на тренажёр, какое бы число стран ни выбиралось.
-                        gained = study.recordTrainer(GeoScore.key(trainer.id, n), r.score, xp = r.xp, xpGroup = trainer.id)
+                        val g = study.recordTrainer(GeoScore.key(trainer.id, n), r.score, xp = r.xp, xpGroup = trainer.id)
+                        withContext(Dispatchers.Main) { gained = g }
                     }
                 }
             }
@@ -167,6 +177,7 @@ private fun GeoIntro(
     onCountChange: (String) -> Unit,
     count: Int?,
     best: Int?,
+    sessions: Int,
     scores: List<Int>,
     onStart: () -> Unit,
 ) {
@@ -191,7 +202,7 @@ private fun GeoIntro(
                 if (best != null && count != null) "рекорд · ${GeoScore.time(GeoScore.seconds(best))}" else "рекорд",
                 Modifier.weight(1f),
             )
-            StatTile("${scores.size}", "тренировок", Modifier.weight(1f))
+            StatTile("$sessions", plural(sessions, "тренировка", "тренировки", "тренировок").substringAfter(' '), Modifier.weight(1f))
         }
         if (scores.size >= 2) {
             Spacer(Modifier.height(24.dp))

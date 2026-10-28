@@ -13,11 +13,16 @@ import app.erudit.data.db.LessonProgress
 import app.erudit.data.db.TrainerScore
 import app.erudit.data.db.UnlockedAchievement
 import app.erudit.data.prefs.SettingsRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -37,12 +42,24 @@ class StudyRepository(
     private val content: suspend () -> Content,
 ) {
     private val mutex = Mutex()
+    private val achievementMutex = Mutex()
     private val _unlocked = MutableSharedFlow<Achievement>(extraBufferCapacity = 8)
 
     /** Новые достижения — для всплывающего уведомления. */
     val unlocked: SharedFlow<Achievement> = _unlocked
 
     fun today(): Long = LocalDate.now().toEpochDay()
+
+    /**
+     * Текущий день. Меняется после полуночи и сразу при новой подписке, поэтому экран, оставленный
+     * открытым с вечера, утром показывает новый день, а не вчерашние цель и повторения.
+     */
+    val currentDay: Flow<Long> = flow {
+        while (true) {
+            emit(today())
+            delay(30_000)
+        }
+    }.distinctUntilChanged()
 
     val completedLessons: Flow<Set<String>> = dao.lessonProgress().map { list -> list.mapTo(HashSet()) { it.lessonId } }
     val passedExams: Flow<Set<String>> = dao.passedExamIds().map { it.toSet() }
@@ -60,14 +77,14 @@ class StudyRepository(
     val mistakeCount = dao.mistakeCount()
     val lastCompletedLesson = dao.lastCompletedLesson()
 
-    fun dueCount(): Flow<Int> = dao.dueCount(today())
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun dueCount(): Flow<Int> = currentDay.flatMapLatest { dao.dueCount(it) }
 
-    val dayProgress: Flow<DayProgress> = combine(activity, settings.settings) { list, s ->
-        val today = today()
+    val dayProgress: Flow<DayProgress> = combine(activity, settings.settings, currentDay) { list, s, today ->
         DayProgress(
             xpToday = list.firstOrNull { it.day == today }?.xp ?: 0,
             goal = s.dailyGoal,
-            streak = streak(list, s.dailyGoal, today),
+            streak = streak(list, s::goalOn, today),
         )
     }
 
@@ -101,11 +118,14 @@ class StudyRepository(
         xp
     }
 
-    /** Сколько опыта принесут ответы, если записать их сейчас, — для экзамена, где запись идёт после разбора. */
-    suspend fun answerXp(answers: List<Pair<Question, Boolean>>): Int {
+    /**
+     * Сколько опыта принёс бы верный ответ на каждый вопрос, если записать его сейчас. Экзамен считает
+     * это до записи ответов: засчитанные в разборе ответы записываются позже остальных.
+     */
+    suspend fun xpIfCorrect(questions: List<Question>): Map<String, Int> {
         val today = today()
-        val cards = cardsFor(answers.map { it.first.id })
-        return answers.sumOf { (q, ok) -> if (ok) Xp.forAnswer(cards[q.id], today) else 0 }
+        val cards = cardsFor(questions.map { it.id })
+        return questions.associate { it.id to Xp.forAnswer(cards[it.id], today) }
     }
 
     /**
@@ -249,12 +269,12 @@ class StudyRepository(
         if (hour == 23 || hour < 4) dao.setCounter(Counter(Counters.NIGHT_OWL, 1))
         if (hour in 4..6) dao.setCounter(Counter(Counters.EARLY_BIRD, 1))
 
-        val goal = settings.settings.first().dailyGoal
-        val s = streak(dao.allActivity().first(), goal, day)
+        val s = streak(dao.allActivity().first(), settings.settings.first()::goalOn, day)
         if (s > (dao.counter(Counters.BEST_STREAK) ?: 0)) dao.setCounter(Counter(Counters.BEST_STREAK, s.toLong()))
     }
 
-    suspend fun checkAchievements(): List<Achievement> {
+    /** Проверки идут по очереди: иначе два одновременных вызова покажут одно достижение дважды. */
+    suspend fun checkAchievements(): List<Achievement> = achievementMutex.withLock {
         val snapshot = snapshot()
         val have = dao.achievementsNow().mapTo(HashSet()) { it.id }
         val fresh = Achievements.all.filter { it.id !in have && it.check(snapshot) }
@@ -263,7 +283,7 @@ class StudyRepository(
             dao.unlock(UnlockedAchievement(a.id, now))
             _unlocked.tryEmit(a)
         }
-        return fresh
+        fresh
     }
 
     private suspend fun snapshot(): StatsSnapshot {
@@ -271,7 +291,7 @@ class StudyRepository(
         val lessons = completedLessons.first()
         val passed = passedExams.first()
         val activity = dao.allActivity().first()
-        val goal = settings.settings.first().dailyGoal
+        val goalOn = settings.settings.first()::goalOn
         return StatsSnapshot(
             lessons = lessons.size,
             examsPassed = passed.size,
@@ -279,7 +299,7 @@ class StudyRepository(
             domainsDone = c.domains.count { it.examId in passed },
             domainsTouched = lessons.mapNotNull { c.lessonsById[it]?.domainId }.toSet().size,
             totalDomains = c.domains.size,
-            streak = streak(activity, goal, today()),
+            streak = streak(activity, goalOn, today()),
             totalCorrect = activity.sumOf { it.correct },
             level = Levels.levelFor(activity.sumOf { it.xp }),
             counters = counters.first(),
@@ -287,9 +307,15 @@ class StudyRepository(
     }
 
     companion object {
-        /** Серия: подряд идущие дни с выполненной целью. Сегодняшний день не обрывает серию, пока он не закончился. */
-        fun streak(activity: List<DailyActivity>, goal: Int, today: Long): Int {
-            val done = activity.filter { it.xp >= goal }.mapTo(HashSet()) { it.day }
+        fun streak(activity: List<DailyActivity>, goal: Int, today: Long): Int = streak(activity, { goal }, today)
+
+        /**
+         * Серия: подряд идущие дни с выполненной целью. Каждый день сверяется с целью, действовавшей
+         * тогда ([goalOn]), — смена цели не обрывает и не удлиняет прошлую серию. Сегодняшний день
+         * не обрывает серию, пока он не закончился.
+         */
+        fun streak(activity: List<DailyActivity>, goalOn: (Long) -> Int, today: Long): Int {
+            val done = activity.filter { it.xp >= goalOn(it.day) }.mapTo(HashSet()) { it.day }
             var day = if (today in done) today else today - 1
             var count = 0
             while (day in done) {

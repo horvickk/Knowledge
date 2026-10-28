@@ -25,7 +25,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +38,7 @@ import app.erudit.ui.components.ScreenPadding
 import app.erudit.ui.components.SecondaryButton
 import app.erudit.ui.components.StatTile
 import app.erudit.ui.components.TopBar
+import app.erudit.ui.components.plural
 import app.erudit.ui.nav.LocalContainer
 import app.erudit.ui.screens.trainers.GeoTrainerScreen
 import app.erudit.ui.screens.trainers.LogicGame
@@ -49,7 +49,9 @@ import app.erudit.ui.screens.trainers.SeriesGame
 import app.erudit.ui.screens.trainers.SpanGame
 import app.erudit.ui.screens.trainers.StroopGame
 import app.erudit.ui.theme.AppTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Итог тренировки, который игра передаёт наверх. */
 data class TrainerOutcome(
@@ -65,31 +67,39 @@ private enum class Phase { INTRO, PLAY, RESULT }
 fun TrainerScreen(trainerId: String, onBack: () -> Unit) {
     val trainer = Trainers.byId[trainerId] ?: return
     if (trainer.perCount) return GeoTrainerScreen(trainer, onBack)
-    val study = LocalContainer.current.study
-    val scope = rememberCoroutineScope()
+    val container = LocalContainer.current
+    val study = container.study
     var phase by remember { mutableStateOf(Phase.INTRO) }
     var outcome by remember { mutableStateOf<TrainerOutcome?>(null) }
+    var previousBest by remember { mutableStateOf<Int?>(null) }
     var gained by remember { mutableStateOf<Int?>(null) }
     var round by remember { mutableIntStateOf(0) }
     val history by remember { study.trainerHistory(trainer.id, 20) }.collectAsState(initial = emptyList())
-    val best = if (trainer.lowerIsBetter) history.minOfOrNull { it.score } else history.maxOfOrNull { it.score }
+    // Рекорд и число тренировок — по всей истории, а не по последним 20 результатам из графика.
+    val stats by remember { study.trainerBests }.collectAsState(initial = emptyList())
+    val mine = stats.firstOrNull { it.trainer == trainer.id }
+    val best = if (trainer.lowerIsBetter) mine?.worst else mine?.best
 
     val finish: (TrainerOutcome) -> Unit = { o ->
         outcome = o
+        // Рекорд сравнивается с тем, что было до этой тренировки: после записи она сама станет лучшей.
+        previousBest = best
         gained = null
         phase = Phase.RESULT
-        scope.launch {
-            gained = study.recordTrainer(
+        // Запись — в фоне приложения: «Готово» сразу после тренировки не должно её отменять.
+        container.scope.launch {
+            val g = study.recordTrainer(
                 trainer.id, o.score, o.xp, o.records,
                 lowerIsBetter = if (trainer.lowerIsBetter) o.records.keys else emptySet(),
             )
+            withContext(Dispatchers.Main) { gained = g }
         }
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         TopBar(title = if (phase == Phase.INTRO) null else trainer.title, onBack = onBack)
         when (phase) {
-            Phase.INTRO -> TrainerIntro(trainer, best, history.map { it.score }.reversed()) {
+            Phase.INTRO -> TrainerIntro(trainer, best, mine?.sessions ?: 0, history.map { it.score }.reversed()) {
                 round++
                 phase = Phase.PLAY
             }
@@ -110,7 +120,7 @@ fun TrainerScreen(trainerId: String, onBack: () -> Unit) {
                 trainer = trainer,
                 outcome = outcome!!,
                 gained = gained,
-                previousBest = best,
+                previousBest = previousBest,
                 onAgain = { round++; phase = Phase.PLAY },
                 onDone = onBack,
             )
@@ -119,7 +129,7 @@ fun TrainerScreen(trainerId: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun TrainerIntro(trainer: Trainer, best: Int?, scores: List<Int>, onStart: () -> Unit) {
+private fun TrainerIntro(trainer: Trainer, best: Int?, sessions: Int, scores: List<Int>, onStart: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
@@ -134,7 +144,7 @@ private fun TrainerIntro(trainer: Trainer, best: Int?, scores: List<Int>, onStar
         Spacer(Modifier.height(28.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StatTile(best?.let { trainer.formatScore(it) } ?: "—", "рекорд", Modifier.weight(1f))
-            StatTile("${scores.size}", "тренировок", Modifier.weight(1f))
+            StatTile("$sessions", plural(sessions, "тренировка", "тренировки", "тренировок").substringAfter(' '), Modifier.weight(1f))
         }
         if (scores.size >= 2) {
             Spacer(Modifier.height(24.dp))

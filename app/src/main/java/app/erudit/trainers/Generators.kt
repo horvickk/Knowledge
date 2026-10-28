@@ -1,5 +1,6 @@
 package app.erudit.trainers
 
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
 data class MathProblem(val text: String, val answer: Int)
@@ -153,4 +154,23 @@ object NBack {
         }
         return seq
     }
+
+    /**
+     * Сбалансированная точность, %: поровну доля найденных совпадений и доля верно пропущенных шагов.
+     * Не нажимать ничего — 50%, как и нажимать всё подряд; при подсчёте по всем шагам бездействие
+     * давало 70–80%, потому что совпадений лишь около трети.
+     */
+    fun accuracy(sequence: List<Int>, n: Int, responses: Collection<Int>): Int {
+        val scored = n until sequence.size
+        val targets = scored.filter { sequence[it] == sequence[it - n] }.toSet()
+        val others = scored.count { it !in targets }
+        val hits = responses.count { it in targets }
+        val falseAlarms = responses.count { it in scored && it !in targets }
+        val hitRate = if (targets.isEmpty()) 1.0 else hits.toDouble() / targets.size
+        val rejectRate = if (others == 0) 1.0 else (others - falseAlarms).toDouble() / others
+        return (50 * (hitRate + rejectRate)).roundToInt().coerceIn(0, 100)
+    }
+
+    /** Опыт только за результат выше случайного (50%): до 10 за каждый уровень N. */
+    fun xp(accuracy: Int, n: Int): Int = (accuracy - 50).coerceAtLeast(0) / 5 * n
 }

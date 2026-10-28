@@ -169,6 +169,10 @@ class SessionViewModel(
     private var examAnswersSaved = false
     private val revising = Mutex()
 
+    /** Опыт за верный ответ на каждый вопрос экзамена — посчитан до записи ответов. */
+    private var examXp: Map<String, Int> = emptyMap()
+    private val examRecorded = HashSet<String>()
+
     init {
         start()
     }
@@ -181,6 +185,8 @@ class SessionViewModel(
         earned = AtomicInteger()
         attemptId = 0
         examAnswersSaved = false
+        examXp = emptyMap()
+        examRecorded.clear()
         _state.value = SessionState(kind = kind)
         viewModelScope.launch {
             val content = container.awaitContent()
@@ -355,7 +361,7 @@ class SessionViewModel(
             val result = when (kind) {
                 SessionKind.EXAM -> {
                     val e = exam!!
-                    // В интервальные повторения ответы попадут после разбора (saveExamAnswers),
+                    // Верные ответы пишутся в повторения сразу, остальные — после разбора (saveExamAnswers),
                     // чтобы засчитанные пользователем ответы не записались как ошибки.
                     val total = s.items.size
                     val answeredIds = answers.map { it.item.question.id }.toSet()
@@ -363,10 +369,12 @@ class SessionViewModel(
                     val duration = ((System.currentTimeMillis() - startedAt) / 1000).toInt()
                     val outcome = study.recordExam(e, correct, total, duration)
                     attemptId = outcome.attemptId
+                    examXp = study.xpIfCorrect(answers.map { it.item.question })
+                    recordExamAnswers(answers.filter { it.correct })
                     SessionResult(
                         correct = correct,
                         total = total,
-                        xp = outcome.xp + study.answerXp(answers.map { it.item.question to it.correct }),
+                        xp = outcome.xp + examAnswerXp(answers),
                         exam = e,
                         passed = outcome.passed,
                         mistakes = answers.filter { !it.correct } + unanswered,
@@ -437,7 +445,7 @@ class SessionViewModel(
                 val now = _state.value.answers
                 val latest = now.count { it.correct }
                 val outcome = study.reviseExam(attemptId, e, latest)
-                val answerXp = study.answerXp(now.map { it.item.question to it.correct })
+                val answerXp = examAnswerXp(now)
                 _state.update { st ->
                     // Пока шёл пересчёт, пользователь мог засчитать ещё ответ — тогда ждём следующего.
                     if (st.answers.count { it.correct } != latest) st
@@ -447,15 +455,24 @@ class SessionViewModel(
         }
     }
 
-    /** Ответы экзамена с учётом засчитанных — в интервальные повторения, один раз. */
+    /** Оставшиеся ответы экзамена с учётом засчитанных — в интервальные повторения, один раз. */
     private fun saveExamAnswers() {
         if (kind != SessionKind.EXAM || examAnswersSaved || _state.value.result == null) return
         examAnswersSaved = true
-        val answers = _state.value.answers
+        recordExamAnswers(_state.value.answers)
+    }
+
+    /** Записывает ответы экзамена, которые ещё не записаны; в фоне приложения, чтобы запись пережила экран. */
+    private fun recordExamAnswers(answers: List<SessionAnswer>) {
+        val fresh = answers.filter { examRecorded.add(it.item.question.id) }
+        if (fresh.isEmpty()) return
         container.scope.launch {
-            answers.forEach { study.recordAnswer(it.item.question, it.correct, isReview = false) }
+            fresh.forEach { study.recordAnswer(it.item.question, it.correct, isReview = false) }
         }
     }
+
+    private fun examAnswerXp(answers: List<SessionAnswer>): Int =
+        answers.filter { it.correct }.sumOf { examXp[it.item.question.id] ?: 0 }
 
     override fun onCleared() {
         saveExamAnswers()

@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -62,9 +63,9 @@ fun HomeScreen(
     val content = rememberContent() ?: return Loading()
     val study = LocalContainer.current.study
     val unlocks = rememberUnlocks(content)
-    val day by study.dayProgress.collectAsState(initial = DayProgress(0, 40, 0))
+    val day by study.dayProgress.collectAsStateWithLifecycle(initialValue = DayProgress(0, 40, 0))
     val level by study.levelInfo.collectAsState(initial = Levels.info(0))
-    val due by remember { study.dueCount() }.collectAsState(initial = 0)
+    val due by remember { study.dueCount() }.collectAsStateWithLifecycle(initialValue = 0)
     val last by study.lastCompletedLesson.collectAsState(initial = null)
     val accuracy by study.lessonAccuracy.collectAsState(initial = emptyList())
 

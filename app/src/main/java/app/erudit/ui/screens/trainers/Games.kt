@@ -572,13 +572,11 @@ private fun NBackRun(n: Int, onFinish: (TrainerOutcome) -> Unit) {
         val targets = (n until trials).filter { sequence[it] == sequence[it - n] }.toSet()
         val hits = responses.count { it in targets }
         val falseAlarms = responses.count { it !in targets }
-        val scored = trials - n
-        val correctRejections = (scored - targets.size) - falseAlarms
-        val accuracy = ((hits + correctRejections) * 100 / scored).coerceIn(0, 100)
+        val accuracy = NBack.accuracy(sequence, n, responses)
         onFinish(
             TrainerOutcome(
                 score = accuracy,
-                xp = (accuracy / 10) * n,
+                xp = NBack.xp(accuracy, n),
                 summary = "$n-back: совпадений найдено $hits из ${targets.size}, ложных нажатий $falseAlarms",
                 records = if (accuracy >= 80) mapOf(Counters.NBACK_LEVEL to n.toLong()) else emptyMap(),
             ),

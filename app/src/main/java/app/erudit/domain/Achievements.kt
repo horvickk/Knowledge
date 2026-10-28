@@ -91,7 +91,7 @@ object Achievements {
             it.counter(Counters.SCHULTE_BEST) in 1..250
         },
         Achievement("nback_3", "Рабочая память", "Пройти 3-back с точностью от 80%", AchievementGroup.MIND) { it.counter(Counters.NBACK_LEVEL) >= 3 },
-        Achievement("stroop_30", "Внимательный", "30 верных ответов в тесте Струпа", AchievementGroup.MIND) { it.counter(Counters.STROOP_BEST) >= 30 },
+        Achievement("stroop_30", "Внимательный", "30 очков в тесте Струпа: верные ответы минус ошибки", AchievementGroup.MIND) { it.counter(Counters.STROOP_BEST) >= 30 },
         Achievement("seq_10", "Чувство закономерности", "Решить все 10 числовых рядов", AchievementGroup.MIND) { it.counter(Counters.SEQ_PERFECT) >= 1 },
         Achievement("logic_10", "Логик", "Решить все 10 логических задач", AchievementGroup.MIND) { it.counter(Counters.LOGIC_PERFECT) >= 1 },
     )

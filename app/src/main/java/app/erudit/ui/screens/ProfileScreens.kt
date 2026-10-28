@@ -79,7 +79,7 @@ fun ProfileScreen(
     val cards by study.cardCount.collectAsState(initial = 0)
 
     val today = LocalDate.now().toEpochDay()
-    val streak = StudyRepository.streak(activity, settings.dailyGoal, today)
+    val streak = StudyRepository.streak(activity, settings::goalOn, today)
     val bestStreak = maxOf(streak.toLong(), counters[Counters.BEST_STREAK] ?: 0)
     val answered = activity.sumOf { it.answered }
     val correct = activity.sumOf { it.correct }
@@ -116,7 +116,7 @@ fun ProfileScreen(
         item {
             SectionLabel("Активность за две недели")
             Tile(Modifier.fillMaxWidth()) {
-                ActivityChart(activity, settings.dailyGoal, today)
+                ActivityChart(activity, settings::goalOn, today)
             }
         }
         item {
@@ -185,11 +185,13 @@ fun ProfileScreen(
 }
 
 @Composable
-private fun ActivityChart(activity: List<DailyActivity>, goal: Int, today: Long) {
+private fun ActivityChart(activity: List<DailyActivity>, goalOn: (Long) -> Int, today: Long) {
     val days = (today - 13..today).toList()
     val byDay = activity.associateBy { it.day }
     val values = days.map { byDay[it]?.xp ?: 0 }
-    val max = maxOf(values.maxOrNull() ?: 0, goal, 1)
+    // Каждый день сравнивается с целью, которая действовала в тот день.
+    val met = days.map { (byDay[it]?.xp ?: 0) >= goalOn(it) }
+    val max = maxOf(values.maxOrNull() ?: 0, goalOn(today), 1)
     val extra = AppTheme.extra
     val primary = MaterialTheme.colorScheme.primary
     val locale = Locale.forLanguageTag("ru")
@@ -208,7 +210,7 @@ private fun ActivityChart(activity: List<DailyActivity>, goal: Int, today: Long)
                         .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
                         .background(
                             when {
-                                v >= goal -> primary
+                                met[i] -> primary
                                 v > 0 -> primary.copy(alpha = 0.35f)
                                 else -> extra.line
                             },
@@ -232,7 +234,7 @@ private fun ActivityChart(activity: List<DailyActivity>, goal: Int, today: Long)
         Spacer(Modifier.height(10.dp))
         val week = values.takeLast(7).sum()
         Text(
-            "За 7 дней: $week опыта · дней с выполненной целью: ${values.takeLast(7).count { it >= goal }}",
+            "За 7 дней: $week опыта · дней с выполненной целью: ${met.takeLast(7).count { it }}",
             style = MaterialTheme.typography.bodySmall,
             color = extra.muted,
         )
