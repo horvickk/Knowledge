@@ -24,7 +24,9 @@ class ContentValidationTest {
         assertTrue("нет областей", content.domains.isNotEmpty())
         println(
             "Областей: ${content.domains.size}, курсов: ${content.coursesById.size}, уроков: ${content.lessons.size}, " +
-                "вопросов: ${content.lessons.sumOf { it.questions.size }}, логических задач: ${content.logicPuzzles.size}",
+                "вопросов: ${content.lessons.sumOf { it.questions.size }}, " +
+                "экзаменационных вариантов: ${content.lessonQuestions.size - content.lessons.sumOf { it.questions.size }}, " +
+                "логических задач: ${content.logicPuzzles.size}",
         )
     }
 
@@ -32,7 +34,7 @@ class ContentValidationTest {
     fun idsAreUnique() {
         val lessonIds = content.lessons.map { it.id }
         assertEquals("повторяются id уроков", lessonIds.size, lessonIds.toSet().size)
-        val questionIds = content.lessons.flatMap { it.questions } .map { it.id } + content.logicPuzzles.map { it.id }
+        val questionIds = content.lessonQuestions.map { it.id } + content.logicPuzzles.map { it.id }
         val dup = questionIds.groupBy { it }.filter { it.value.size > 1 }.keys
         assertTrue("повторяются вопросы: $dup", dup.isEmpty())
     }
@@ -59,7 +61,7 @@ class ContentValidationTest {
     @Test
     fun questionsAreWellFormed() {
         val problems = mutableListOf<String>()
-        for (q in content.lessons.flatMap { it.questions } + content.logicPuzzles) {
+        for (q in content.lessonQuestions + content.logicPuzzles) {
             if (q.options.size !in 2..5) problems += "${q.id}: вариантов ${q.options.size}"
             if (q.options.toSet().size != q.options.size) problems += "${q.id}: повторяются варианты «${q.text}»"
             if (q.explanation.isNullOrBlank()) problems += "${q.id}: нет пояснения «${q.text}»"

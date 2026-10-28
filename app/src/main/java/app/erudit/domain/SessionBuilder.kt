@@ -52,7 +52,7 @@ object SessionBuilder {
             .map { it.first }
             .shuffled(random)
 
-    /** Экзамен: вопросы равномерно со всех уроков пула. */
+    /** Экзамен: вопросы равномерно со всех уроков пула; у задач — экзаменационный вариант вместо вопроса урока. */
     fun exam(exam: Exam, random: Random = Random.Default): List<Question> {
         val groups = exam.pool.groupBy { it.lessonId }.values.map { it.shuffled(random).toMutableList() }.shuffled(random)
         val result = mutableListOf<Question>()
@@ -64,7 +64,7 @@ object SessionBuilder {
             }
             round++
         }
-        return result.shuffled(random)
+        return result.map { q -> if (q.examVariants.isEmpty()) q else q.examVariants.random(random) }.shuffled(random)
     }
 
     fun optionOrder(q: Question, random: Random = Random.Default): List<Int> =

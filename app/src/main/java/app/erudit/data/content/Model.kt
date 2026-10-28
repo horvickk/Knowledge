@@ -53,6 +53,11 @@ data class Question(
     val explanation: String?,
     /** Вопрос-выбор («?? » в контенте): без вариантов он не имеет смысла, и они всегда показываются. */
     val choice: Boolean = false,
+    /**
+     * Экзаменационные варианты задачи («?! » в контенте): та же суть на другом примере.
+     * Экзамен задаёт один из них вместо вопроса урока, чтобы проверить понимание, а не память на ответ.
+     */
+    val examVariants: List<Question> = emptyList(),
 ) {
     /** Вопросы «верно/неверно» не перемешиваются, чтобы порядок ответов был привычным. */
     val keepOrder: Boolean
@@ -83,8 +88,10 @@ class Content(
     val coursesById: Map<String, Course> = domains.flatMap { it.courses }.associateBy { it.id }
     val lessons: List<Lesson> = domains.flatMap { it.lessons }
     val lessonsById: Map<String, Lesson> = lessons.associateBy { it.id }
-    val questionsById: Map<String, Question> =
-        (lessons.flatMap { it.questions } + logicPuzzles).associateBy { it.id }
+
+    /** Вопросы уроков вместе с экзаменационными вариантами — всё, на что могут ссылаться карточки. */
+    val lessonQuestions: List<Question> = lessons.flatMap { l -> l.questions.flatMap { listOf(it) + it.examVariants } }
+    val questionsById: Map<String, Question> = (lessonQuestions + logicPuzzles).associateBy { it.id }
     val stagesById: Map<String, Stage> =
         domains.flatMap { d -> d.courses.flatMap { it.stages } }.associateBy { it.id }
 

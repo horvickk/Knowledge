@@ -147,7 +147,7 @@ class AnswerMatcherTest {
             override fun read(path: String): String = File(root, path).readText()
         })
         val problems = mutableListOf<String>()
-        val questions = content.lessons.flatMap { it.questions } + content.logicPuzzles
+        val questions = content.lessonQuestions + content.logicPuzzles
         for (question in questions) {
             val right = question.options[question.correct]
             if (!AnswerMatcher.check(right, question)) problems += "не принят верный: ${question.id} «$right»"

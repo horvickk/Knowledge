@@ -19,7 +19,10 @@ package app.erudit.data.content
  * + верный ответ
  * - неверный ответ
  * = пояснение
+ * ?! Экзаменационный вариант предыдущего вопроса — та же задача на другом примере
+ * + …
  * ```
+ * «?? » и «??! » — то же для вопросов-выборов, где варианты показываются всегда.
  */
 object ContentParser {
 
@@ -116,12 +119,13 @@ object ContentParser {
         var correct = -1
         var explanation: String? = null
         var choice = false
+        var variant = false
 
         fun flush() {
             val q = text ?: return
             if (correct < 0) throw ParseException("$ownerId: нет верного ответа в «$q»")
             if (options.size < 2) throw ParseException("$ownerId: мало вариантов в «$q»")
-            result += Question(
+            val question = Question(
                 id = ownerId + "#" + stableHash(q),
                 lessonId = ownerId,
                 text = q,
@@ -130,11 +134,18 @@ object ContentParser {
                 explanation = explanation,
                 choice = choice,
             )
+            if (variant) {
+                val base = result.removeLastOrNull() ?: throw ParseException("$ownerId: экзаменационный вариант без вопроса «$q»")
+                result += base.copy(examVariants = base.examVariants + question)
+            } else {
+                result += question
+            }
             text = null
             options.clear()
             correct = -1
             explanation = null
             choice = false
+            variant = false
         }
 
         for (raw in lines) {
@@ -144,8 +155,9 @@ object ContentParser {
                 isQuestion(line) -> {
                     flush()
                     // «?? » — вопрос-выбор; id считается по тексту, поэтому пометка его не меняет.
-                    choice = line.startsWith(CHOICE_PREFIX)
-                    text = line.removePrefix(CHOICE_PREFIX).removePrefix(QUESTION_PREFIX).trim()
+                    choice = line.startsWith(CHOICE_PREFIX) || line.startsWith(CHOICE_VARIANT_PREFIX)
+                    variant = line.startsWith(VARIANT_PREFIX) || line.startsWith(CHOICE_VARIANT_PREFIX)
+                    text = line.substringAfter(' ').trim()
                 }
                 line.startsWith("+ ") -> {
                     if (text == null) throw ParseException("$ownerId: ответ без вопроса '$line'")
@@ -170,8 +182,11 @@ object ContentParser {
 
     private const val QUESTION_PREFIX = "? "
     private const val CHOICE_PREFIX = "?? "
+    private const val VARIANT_PREFIX = "?! "
+    private const val CHOICE_VARIANT_PREFIX = "??! "
+    private val PREFIXES = listOf(QUESTION_PREFIX, CHOICE_PREFIX, VARIANT_PREFIX, CHOICE_VARIANT_PREFIX)
 
-    private fun isQuestion(line: String) = line.startsWith(QUESTION_PREFIX) || line.startsWith(CHOICE_PREFIX)
+    private fun isQuestion(line: String) = PREFIXES.any { line.startsWith(it) }
 
     private fun parseHeader(lines: List<String>): Map<String, String> =
         lines.filter { it.isNotBlank() && !it.startsWith("//") }
