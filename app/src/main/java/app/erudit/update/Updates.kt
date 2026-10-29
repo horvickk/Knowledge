@@ -12,6 +12,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -179,6 +180,9 @@ class UpdateManager(
                 if (release.apkSize > 0 && part.length() != release.apkSize) error("Файл скачан не полностью")
                 target.delete()
                 if (!part.renameTo(target)) error("Не удалось сохранить файл")
+                // Полоса успевает дойти до конца, прежде чем её сменит кнопка «Установить».
+                _download.value = DownloadState.Downloading(1f)
+                delay(400)
                 _download.value = DownloadState.Ready(target)
             } catch (e: CancellationException) {
                 part.delete()

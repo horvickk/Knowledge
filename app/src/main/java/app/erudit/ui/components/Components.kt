@@ -1,6 +1,8 @@
 package app.erudit.ui.components
 
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -159,7 +161,9 @@ fun ThinProgress(
     track: Color = AppTheme.extra.line,
     height: Dp = 4.dp,
 ) {
-    val animated by animateFloatAsState(fraction.coerceIn(0f, 1f), tween(500), label = "progress")
+    // Пружина, а не tween: при частых обновлениях (загрузка, таймер) tween начинается заново с каждым
+    // новым значением и почти не сдвигается, а пружина сохраняет скорость и идёт вровень с цифрами.
+    val animated by animateFloatAsState(fraction.coerceIn(0f, 1f), spring(stiffness = Spring.StiffnessMediumLow), label = "progress")
     Box(
         modifier
             .fillMaxWidth()
