@@ -178,12 +178,12 @@ fun MarkdownBlock(block: Block, accent: Color, modifier: Modifier = Modifier) {
             style = if (block.level == 2) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
             modifier = modifier.padding(top = if (block.level == 2) 28.dp else 20.dp, bottom = 8.dp),
         )
-        is Block.Paragraph -> Text(Markdown.inline(block.text), style = body, modifier = modifier.padding(vertical = 7.dp))
+        is Block.Paragraph -> RichText(block.text, style = body, modifier = modifier.padding(vertical = 7.dp))
         is Block.Bullets -> Column(modifier.padding(vertical = 6.dp)) {
             block.items.forEach { item ->
                 Row(Modifier.padding(vertical = 3.dp)) {
                     Text("—", style = body.copy(color = accent), modifier = Modifier.width(26.dp))
-                    Text(Markdown.inline(item), style = body)
+                    RichText(item, style = body)
                 }
             }
         }
@@ -191,7 +191,7 @@ fun MarkdownBlock(block: Block, accent: Color, modifier: Modifier = Modifier) {
             block.items.forEachIndexed { index, item ->
                 Row(Modifier.padding(vertical = 3.dp)) {
                     Text("${index + 1}.", style = body.copy(color = accent, fontWeight = FontWeight.SemiBold), modifier = Modifier.width(30.dp))
-                    Text(Markdown.inline(item), style = body)
+                    RichText(item, style = body)
                 }
             }
         }
@@ -203,8 +203,8 @@ fun MarkdownBlock(block: Block, accent: Color, modifier: Modifier = Modifier) {
         ) {
             Box(Modifier.width(3.dp).fillMaxHeight().clip(RoundedCornerShape(2.dp)).background(accent))
             Spacer(Modifier.width(16.dp))
-            Text(
-                Markdown.inline(block.text),
+            RichText(
+                block.text,
                 style = body.copy(fontSize = (18 * scale).sp, lineHeight = (28 * scale).sp, fontStyle = FontStyle.Italic),
                 modifier = Modifier.padding(vertical = 2.dp),
             )
@@ -219,12 +219,12 @@ fun MarkdownBlock(block: Block, accent: Color, modifier: Modifier = Modifier) {
         ) {
             Text("ИНТЕРЕСНО", style = MaterialTheme.typography.labelSmall, color = accent)
             Spacer(Modifier.height(6.dp))
-            Text(Markdown.inline(block.text), style = body.copy(fontSize = (16 * scale).sp, lineHeight = (25 * scale).sp))
+            RichText(block.text, style = body.copy(fontSize = (16 * scale).sp, lineHeight = (25 * scale).sp))
         }
         is Block.Formula -> Box(modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-            Text(
+            RichText(
                 block.text,
-                style = body.copy(fontSize = (20 * scale).sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center),
+                style = body.copy(fontSize = (20 * scale).sp, lineHeight = (32 * scale).sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center),
                 modifier = Modifier
                     .clip(MaterialTheme.shapes.small)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -264,8 +264,8 @@ private fun TableBlock(block: Block.Table, scale: Float, modifier: Modifier) {
                         .height(IntrinsicSize.Min),
                 ) {
                     for (c in 0 until columns) {
-                        Text(
-                            Markdown.inline(row.getOrElse(c) { "" }),
+                        RichText(
+                            row.getOrElse(c) { "" },
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontSize = (14 * scale).sp,
                                 lineHeight = (20 * scale).sp,

@@ -72,7 +72,7 @@ import app.erudit.ui.components.SecondaryButton
 import app.erudit.ui.components.ThinProgress
 import app.erudit.ui.components.Loading
 import app.erudit.ui.components.plural
-import app.erudit.ui.markdown.Markdown
+import app.erudit.ui.markdown.RichText
 import app.erudit.ui.nav.LocalContainer
 import app.erudit.ui.theme.AppTheme
 import app.erudit.ui.theme.Serif
@@ -643,8 +643,8 @@ private fun QuestionView(
                     )
                     Spacer(Modifier.height(8.dp))
                 }
-                Text(
-                    Markdown.inline(current.question.text),
+                RichText(
+                    current.question.text,
                     style = MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp, lineHeight = 30.sp),
                 )
                 Spacer(Modifier.height(24.dp))
@@ -788,7 +788,7 @@ private fun ResultView(
             items(result.mistakes) { m ->
                 val q = m.item.question
                 Column(Modifier.padding(vertical = 12.dp)) {
-                    Text(Markdown.inline(q.text), style = MaterialTheme.typography.titleMedium)
+                    RichText(q.text, style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
                     if (m.typed.isNotBlank()) {
                         Row(verticalAlignment = Alignment.Top) {
@@ -812,7 +812,7 @@ private fun ResultView(
                     Row(verticalAlignment = Alignment.Top) {
                         Icon(Icons.Outlined.Check, null, tint = extra.success, modifier = Modifier.size(18.dp).padding(top = 2.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(Markdown.inline(q.options[q.correct]), style = MaterialTheme.typography.bodyMedium)
+                        RichText(q.options[q.correct], style = MaterialTheme.typography.bodyMedium)
                     }
                     if (exam && !m.correct && m.typed.isNotBlank()) {
                         Spacer(Modifier.height(10.dp))
@@ -820,7 +820,7 @@ private fun ResultView(
                     }
                     q.explanation?.let {
                         Spacer(Modifier.height(8.dp))
-                        Text(Markdown.inline(it), style = MaterialTheme.typography.bodyMedium.copy(fontFamily = Serif), color = extra.muted)
+                        RichText(it, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = Serif), color = extra.muted)
                     }
                     val lesson = content?.lessonsById?.get(q.lessonId)
                     if (lesson != null) {

@@ -1,6 +1,14 @@
 package app.erudit
 
 import android.graphics.Bitmap
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Column
+import app.erudit.ui.markdown.RichText
+import app.erudit.ui.markdown.MarkdownBlock
+import app.erudit.ui.markdown.Markdown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -61,6 +69,24 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
+
+/** Образцы формул для скриншота: корни, степени, дроби в тексте, таблице и формулах. */
+private const val MATH_SAMPLE = """Корень — действие, обратное степени. **Квадратный корень** из a — неотрицательное число, квадрат которого равен a: √49 = 7. Корень третьей степени: ∛27 = 3, потому что 3³ = 27.
+
+Корень можно записать как дробную степень: √a = a^(1/2). Это опять следует из правил: (a^(1/2))² = a¹ = a. Сложение дробей: 2/3 + 3/4 = 8/12 + 9/12 = **17/12**, а золотое сечение — (1 + √5)/2 ≈ 1,618.
+
+$$ x = (−b ± √D)/(2a)
+
+$$ T = 2π √(l/g)
+
+$$ η = 1 − (T_хол)/(T_нагр)
+
+| Угол | sin | cos |
+|---|---|---|
+| 30° | 1/2 | √3/2 |
+| 45° | √2/2 | √2/2 |
+
+Скорость 72 км/ч, A/B-тест и принцип 80\/20 остаются текстом."""
 
 /**
  * Рендерит основные экраны в PNG (build/screenshots) для визуальной проверки дизайна.
@@ -126,6 +152,16 @@ class ScreenshotTest {
                             "logic" -> TrainerScreen("logic") {}
                             "exam" -> ExamIntroScreen(firstCourse.stages.first().examId, {}, {})
                             "exam-session" -> SessionScreen("exam", firstCourse.stages.first().examId, {}, {})
+                            "math" -> Column(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.background)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                            ) {
+                                RichText("Чему равно 8^(2/3)? А √(9/16)?", style = MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp, lineHeight = 30.sp))
+                                Markdown.parse(MATH_SAMPLE).forEach { MarkdownBlock(it, MaterialTheme.colorScheme.primary) }
+                            }
                             "update" -> Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
                                 UpdateCard(update, updateDownload, {}, {}, {}, {}, Modifier.padding(20.dp))
                             }
@@ -226,7 +262,11 @@ class ScreenshotTest {
         shot("22-course-dark")
         screen = "update"
         shot("27-update-dark")
+        screen = "math"
+        shot("31-math-dark")
         theme = ThemeMode.LIGHT
+        shot("30-math")
+        screen = "update"
         shot("28-update")
         updateDownload = DownloadState.Downloading(0.42f)
         shot("29-update-downloading")

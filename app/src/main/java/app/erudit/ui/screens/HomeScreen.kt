@@ -40,7 +40,7 @@ import app.erudit.ui.components.SectionLabel
 import app.erudit.ui.components.ThinProgress
 import app.erudit.ui.components.Tile
 import app.erudit.ui.components.plural
-import app.erudit.ui.markdown.Markdown
+import app.erudit.ui.markdown.RichText
 import app.erudit.ui.nav.LocalContainer
 import app.erudit.ui.nav.rememberContent
 import app.erudit.ui.theme.AppTheme
@@ -224,8 +224,8 @@ fun HomeScreen(
                 SectionLabel("Факт дня")
                 val color = domainColor(content.domainOf(fact.first).color)
                 Tile(onClick = { onLesson(fact.first.id) }, modifier = Modifier.fillMaxWidth(), padding = 18.dp) {
-                    Text(
-                        Markdown.inline(fact.second),
+                    RichText(
+                        fact.second,
                         style = MaterialTheme.typography.bodyLarge.copy(fontFamily = Serif, lineHeight = MaterialTheme.typography.bodyLarge.lineHeight),
                     )
                     Spacer(Modifier.height(10.dp))

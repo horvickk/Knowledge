@@ -55,7 +55,7 @@ import app.erudit.ui.components.OptionHints
 import app.erudit.ui.components.PrimaryButton
 import app.erudit.ui.components.ScreenPadding
 import app.erudit.ui.components.ThinProgress
-import app.erudit.ui.markdown.Markdown
+import app.erudit.ui.markdown.RichText
 import app.erudit.ui.nav.rememberContent
 import app.erudit.ui.screens.TrainerOutcome
 import app.erudit.ui.theme.AppTheme
@@ -380,7 +380,7 @@ fun LogicGame(onFinish: (TrainerOutcome) -> Unit) {
             Spacer(Modifier.height(8.dp))
             Text("Задача ${index + 1} из ${questions.size}", style = MaterialTheme.typography.labelMedium, color = extra.muted)
             Spacer(Modifier.height(20.dp))
-            Text(Markdown.inline(q.text), style = MaterialTheme.typography.titleLarge.copy(lineHeight = 28.sp))
+            RichText(q.text, style = MaterialTheme.typography.titleLarge.copy(lineHeight = 28.sp))
             Spacer(Modifier.height(24.dp))
             if (showOptions) {
                 OptionHints(q.options, order)

@@ -42,6 +42,7 @@ import app.erudit.ui.components.Divider
 import app.erudit.ui.components.EmptyNote
 import app.erudit.ui.components.Loading
 import app.erudit.ui.components.ScreenPadding
+import app.erudit.ui.markdown.RichText
 import app.erudit.ui.nav.rememberContent
 import app.erudit.ui.theme.AppTheme
 import app.erudit.ui.theme.domainColor
@@ -129,7 +130,7 @@ fun SearchScreen(onBack: () -> Unit, onLesson: (String) -> Unit) {
                         Text(hit.lesson.title, style = MaterialTheme.typography.titleMedium)
                         hit.snippet?.let {
                             Spacer(Modifier.height(4.dp))
-                            Text(it, style = MaterialTheme.typography.bodySmall, color = AppTheme.extra.muted, maxLines = 3)
+                            RichText(it, style = MaterialTheme.typography.bodySmall, color = AppTheme.extra.muted, maxLines = 3)
                         }
                     }
                 }

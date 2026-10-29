@@ -34,16 +34,13 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.erudit.domain.AnswerMatcher
-import app.erudit.ui.markdown.Markdown
+import app.erudit.ui.markdown.RichText
 import app.erudit.ui.theme.AppTheme
 import app.erudit.ui.theme.Serif
 
@@ -152,11 +149,8 @@ fun AnswerFeedback(
         )
         if (!correct || overridden) {
             Spacer(Modifier.height(6.dp))
-            Text(
-                buildAnnotatedString {
-                    append("Правильный ответ: ")
-                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(Markdown.inline(rightAnswer)) }
-                },
+            RichText(
+                "Правильный ответ: **$rightAnswer**",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onBackground,
             )
@@ -168,8 +162,8 @@ fun AnswerFeedback(
         }
         explanation?.let {
             Spacer(Modifier.height(10.dp))
-            Text(
-                Markdown.inline(it),
+            RichText(
+                it,
                 style = MaterialTheme.typography.bodyLarge.copy(fontFamily = Serif),
                 color = MaterialTheme.colorScheme.onBackground,
             )
@@ -208,7 +202,7 @@ fun OptionHints(options: List<String>, order: List<Int>, modifier: Modifier = Mo
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.width(26.dp),
                 )
-                Text(Markdown.inline(options[index]), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                RichText(options[index], style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
             }
         }
         Spacer(Modifier.height(6.dp))
