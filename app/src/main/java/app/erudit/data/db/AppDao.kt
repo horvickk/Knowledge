@@ -46,11 +46,8 @@ interface AppDao {
     @Upsert
     suspend fun upsertCards(cards: List<Card>)
 
-    @Query("SELECT * FROM card WHERE due <= :today ORDER BY due, lastAnswered LIMIT :limit")
-    suspend fun dueCards(today: Long, limit: Int): List<Card>
-
-    @Query("SELECT COUNT(*) FROM card WHERE due <= :today")
-    fun dueCount(today: Long): Flow<Int>
+    @Query("SELECT questionId FROM card WHERE due <= :today ORDER BY due, lastAnswered, questionId")
+    fun dueQuestionIds(today: Long): Flow<List<String>>
 
     @Query("SELECT COUNT(*) FROM card")
     fun cardCount(): Flow<Int>

@@ -15,6 +15,8 @@ import java.time.LocalDate
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+const val DEFAULT_REVIEW_LIMIT = 30
+
 data class Settings(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val textScale: Float = 1f,
@@ -25,6 +27,7 @@ data class Settings(
     val sequential: Boolean = true,
     val onboarded: Boolean = false,
     val sessionSize: Int = 15,
+    val reviewLimit: Int = DEFAULT_REVIEW_LIMIT,
     val checkUpdates: Boolean = true,
     /** «Позже» в окне обновления: сборка и день, до конца которого окно не показывается. */
     val updateSnoozeBuild: Int = 0,
@@ -66,6 +69,7 @@ class SettingsRepository(private val context: Context) {
         val sequential = booleanPreferencesKey("sequential")
         val onboarded = booleanPreferencesKey("onboarded")
         val sessionSize = intPreferencesKey("session_size")
+        val reviewLimit = intPreferencesKey("review_limit")
         val checkUpdates = booleanPreferencesKey("check_updates")
         val updateSnoozeBuild = intPreferencesKey("update_snooze_build")
         val updateSnoozeDay = longPreferencesKey("update_snooze_day")
@@ -83,6 +87,7 @@ class SettingsRepository(private val context: Context) {
             sequential = p[Keys.sequential] ?: true,
             onboarded = p[Keys.onboarded] ?: false,
             sessionSize = p[Keys.sessionSize] ?: 15,
+            reviewLimit = p[Keys.reviewLimit] ?: DEFAULT_REVIEW_LIMIT,
             checkUpdates = p[Keys.checkUpdates] ?: true,
             updateSnoozeBuild = p[Keys.updateSnoozeBuild] ?: 0,
             updateSnoozeDay = p[Keys.updateSnoozeDay] ?: 0,
@@ -110,6 +115,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSequential(enabled: Boolean) = set(Keys.sequential, enabled)
     suspend fun setOnboarded() = set(Keys.onboarded, true)
     suspend fun setSessionSize(size: Int) = set(Keys.sessionSize, size)
+    suspend fun setReviewLimit(limit: Int) = set(Keys.reviewLimit, limit.coerceAtLeast(1))
     suspend fun setCheckUpdates(enabled: Boolean) = set(Keys.checkUpdates, enabled)
 
     suspend fun snoozeUpdate(build: Int, day: Long) {

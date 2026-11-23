@@ -92,6 +92,17 @@ class Content(
     /** Вопросы уроков вместе с экзаменационными вариантами — всё, на что могут ссылаться карточки. */
     val lessonQuestions: List<Question> = lessons.flatMap { l -> l.questions.flatMap { listOf(it) + it.examVariants } }
     val questionsById: Map<String, Question> = (lessonQuestions + logicPuzzles).associateBy { it.id }
+    private val baseIdByVariant = buildMap {
+        for (lesson in lessons) for (question in lesson.questions) {
+            for (variant in question.examVariants) put(variant.id, question.id)
+        }
+    }
+
+    fun reviewQuestions(dueIds: List<String>, limit: Int): List<Question> =
+        dueIds.asSequence().mapNotNull(questionsById::get)
+            .distinctBy { baseIdByVariant[it.id] ?: it.id }
+            .take(limit).toList()
+
     val stagesById: Map<String, Stage> =
         domains.flatMap { d -> d.courses.flatMap { it.stages } }.associateBy { it.id }
 

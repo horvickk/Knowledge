@@ -159,6 +159,13 @@ fun SettingsScreen(onBack: () -> Unit) {
             ChoiceChips(sizes.map { "$it вопросов" to (settings.sessionSize == it) }) { i -> scope.launch { repo.setSessionSize(sizes[i]) } }
         }
         item {
+            SectionLabel("Максимум вопросов за повторение")
+            val limits = listOf(10, 20, 30, 50, 100)
+            ChoiceChips(limits.map { "$it" to (settings.reviewLimit == it) }) { i ->
+                scope.launch { repo.setReviewLimit(limits[i]) }
+            }
+        }
+        item {
             SectionLabel("Обучение")
             SwitchRow(
                 "Последовательные ступени",

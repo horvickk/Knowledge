@@ -156,6 +156,7 @@ class SessionViewModel(
     private var timer: Job? = null
     private var startedAt = 0L
     private var exam: Exam? = null
+    private var reviewLimit = 0
     private val requeued = HashSet<String>()
 
     /** Сколько ответов уже записано в статистику: ответ записывается, когда пользователь идёт дальше. */
@@ -191,7 +192,8 @@ class SessionViewModel(
         _state.value = SessionState(kind = kind)
         viewModelScope.launch {
             val content = container.awaitContent()
-            val size = container.settings.settings.first().sessionSize
+            val settings = container.settings.settings.first()
+            val size = settings.sessionSize
             var title = ""
             var empty: String? = null
             var timeLimit: Int? = null
@@ -207,7 +209,7 @@ class SessionViewModel(
                     val done = study.completedLessons.first()
                     val studied = lessons.filter { it.id in done }
                     // Ничего не пройдено — вопросы открытых уроков: закрытые ступени не подсматриваем.
-                    val unlocks = Unlocks(content, done, study.passedExams.first(), container.settings.settings.first().sequential)
+                    val unlocks = Unlocks(content, done, study.passedExams.first(), settings.sequential)
                     val open = lessons.filter { unlocks.lessonOpen(it) }
                     val pool = (studied.ifEmpty { if (arg == "all") emptyList() else open }).flatMap { it.questions }
                     if (pool.isEmpty()) empty = "Пройдите хотя бы один урок — и здесь появятся вопросы для тренировки."
@@ -215,8 +217,8 @@ class SessionViewModel(
                 }
                 SessionKind.REVIEW -> {
                     title = "Повторение"
-                    val cards = study.dueCards(limit = maxOf(size, 20))
-                    val qs = cards.mapNotNull { content.questionsById[it.questionId] }
+                    reviewLimit = settings.reviewLimit
+                    val qs = study.reviewQuestions(reviewLimit).first()
                     if (qs.isEmpty()) empty = "На сегодня повторений нет. Карточки появляются после уроков и возвращаются по графику забывания."
                     qs.shuffled()
                 }
@@ -295,7 +297,7 @@ class SessionViewModel(
             return
         }
         var items = s.items
-        if (kind == SessionKind.REVIEW && !correct && requeued.add(item.question.id)) {
+        if (kind == SessionKind.REVIEW && !correct && items.size < reviewLimit && requeued.add(item.question.id)) {
             items = items + SessionItem(item.question, SessionBuilder.optionOrder(item.question))
         }
         _state.update { it.copy(input = typed, verdict = correct, answers = it.answers + SessionAnswer(item, typed, correct), items = items) }

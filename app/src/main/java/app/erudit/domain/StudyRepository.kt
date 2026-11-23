@@ -78,7 +78,13 @@ class StudyRepository(
     val lastCompletedLesson = dao.lastCompletedLesson()
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun dueCount(): Flow<Int> = currentDay.flatMapLatest { dao.dueCount(it) }
+    fun reviewQuestions(limit: Int): Flow<List<Question>> = currentDay.flatMapLatest { day ->
+        dao.dueQuestionIds(day).map { content().reviewQuestions(it, limit) }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun dueCount(): Flow<Int> = settings.settings.map { it.reviewLimit }.distinctUntilChanged()
+        .flatMapLatest { limit -> reviewQuestions(limit).map { it.size } }
 
     val dayProgress: Flow<DayProgress> = combine(activity, settings.settings, currentDay) { list, s, today ->
         DayProgress(
@@ -100,7 +106,6 @@ class StudyRepository(
     suspend fun cardsFor(ids: List<String>): Map<String, Card> =
         ids.chunked(500).flatMap { dao.cards(it) }.associateBy { it.questionId }
 
-    suspend fun dueCards(limit: Int): List<Card> = dao.dueCards(today(), limit)
     suspend fun mistakeCards(limit: Int): List<Card> = dao.mistakeCards(limit)
 
     /**
